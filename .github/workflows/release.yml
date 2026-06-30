@@ -1,0 +1,47 @@
+name: Release
+
+# При пуше тега вида v1.2.3 — собрать zip плагина и опубликовать релиз с этим ассетом.
+# Апдейтер на сайтах предпочитает приложенный .zip (с папкой meta-dynamic-pixel/),
+# поэтому установка/обновление проходит без переименования каталога.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build plugin zip
+        run: |
+          SLUG=meta-dynamic-pixel
+          mkdir -p build/$SLUG
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='build' \
+            --exclude='.gitignore' \
+            ./ "build/$SLUG/"
+          (cd build && zip -rq "$SLUG.zip" "$SLUG")
+          ls -la build
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          SLUG=meta-dynamic-pixel
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "build/$SLUG.zip" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "build/$SLUG.zip" \
+              --title "$TAG" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi
