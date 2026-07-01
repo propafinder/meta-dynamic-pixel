@@ -18,6 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Lint PHP (fail release on any syntax error)
+        run: |
+          find . -path ./build -prune -o -name '*.php' -print | while read -r f; do
+            php -l "$f" || exit 1
+          done
+
       - name: Build plugin zip
         run: |
           SLUG=meta-dynamic-pixel

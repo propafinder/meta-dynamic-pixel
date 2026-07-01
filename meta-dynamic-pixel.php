@@ -3,7 +3,7 @@
  * Plugin Name: Meta Dynamic Pixel
  * Plugin URI:  https://example.com/meta-dynamic-pixel
  * Description: Динамический пиксель Meta (Facebook/Instagram): ID + токен Conversions API, авто-проброс UTM-меток, запоминание реферера и origin (откуда пришёл лид), сквозное отслеживание до покупки на странице "Спасибо" (thank you). Серверная отправка событий (CAPI) с дедупликацией.
- * Version:     1.1.2
+ * Version:     1.1.3
  * Author:      Degree Team
  * Author URI:  https://example.com/
  * License:     GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit; // Прямой доступ запрещён
 }
 
-define('MDP_VERSION', '1.1.2');
+define('MDP_VERSION', '1.1.3');
 define('MDP_FILE', __FILE__);
 define('MDP_PATH', plugin_dir_path(__FILE__));
 define('MDP_URL', plugin_dir_url(__FILE__));
@@ -96,8 +96,9 @@ function mdp_is_excluded() {
 
 /**
  * Совместимость с WooCommerce, чтобы Woo не помечал плагин как несовместимый:
- *  - custom_order_tables (HPOS) — весь код работает через CRUD заказа ($order->get_*/save),
- *    прямого доступа к postmeta нет, поэтому совместимость объявляется честно;
+ *  - custom_order_tables (HPOS) — весь код работает только через CRUD заказа
+ *    (get_..., update_meta_data, save), без прямого доступа к postmeta, поэтому
+ *    совместимость объявляется честно;
  *  - cart_checkout_blocks — блоки корзины/оформления.
  * Декларацию обязательно делать на хуке before_woocommerce_init.
  */
