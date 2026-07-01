@@ -5,7 +5,7 @@ Tags: facebook, meta, pixel, conversions api, utm, woocommerce
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.2
-Stable tag: 1.1.3
+Stable tag: 1.1.4
 License: GPLv2 or later
 
 Динамический пиксель Meta (Facebook/Instagram) с UTM-атрибуцией, реферером,
@@ -43,6 +43,14 @@ origin лида, отслеживанием покупки на странице
 * Серверные события — Events Manager → Test Events (введите Test Event Code в настройках).
 
 == Журнал изменений ==
+
+= 1.1.4 =
+* WooCommerce Purchase теперь отправляется только для оплаченных заказов
+  (по умолчанию статусы processing и completed) — failed/cancelled/pending/on-hold
+  больше не засчитываются. Набор статусов настраивается фильтром mdp_purchase_statuses.
+* Отложенная/асинхронная оплата: серверный Purchase (CAPI) уходит по подтверждению
+  оплаты (woocommerce_payment_complete / order_status_completed), а не только на «Спасибо».
+  Дедупликация по event_id purchase.ORDER_ID сохраняется — дублей нет.
 
 = 1.1.3 =
 * Критическое исправление: последовательность «*/» внутри комментария досрочно
