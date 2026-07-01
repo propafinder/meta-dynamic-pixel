@@ -34,6 +34,52 @@ class MDP_GitHub_Updater {
         add_filter('plugins_api', array($this, 'plugin_info'), 20, 3);
         add_filter('upgrader_source_selection', array($this, 'fix_source_dir'), 10, 4);
         add_action('upgrader_process_complete', array($this, 'clear_cache'), 10, 2);
+
+        // Ссылка «Проверить обновления» в строке плагина + обработчик принудительной проверки.
+        add_filter('plugin_action_links_' . $this->basename, array($this, 'action_link'));
+        add_action('admin_init', array($this, 'handle_manual_check'));
+        add_action('admin_notices', array($this, 'checked_notice'));
+    }
+
+    /** Ссылка «Проверить обновления» на странице «Плагины». */
+    public function action_link($links) {
+        $url = wp_nonce_url(
+            add_query_arg('mdp_check_update', '1', admin_url('plugins.php')),
+            'mdp_check_update'
+        );
+        $links[] = '<a href="' . esc_url($url) . '">' . esc_html__('Проверить обновления', 'meta-dynamic-pixel') . '</a>';
+        return $links;
+    }
+
+    /** Сбросить кэши и заставить WordPress проверить обновления немедленно. */
+    public function handle_manual_check() {
+        if (empty($_GET['mdp_check_update'])) {
+            return;
+        }
+        if (!current_user_can('update_plugins')) {
+            return;
+        }
+        check_admin_referer('mdp_check_update');
+
+        delete_transient($this->cache_key);       // наш кэш ответа GitHub
+        delete_site_transient('update_plugins');   // кэш обновлений WordPress
+        wp_update_plugins();                        // повторная проверка сразу
+
+        wp_safe_redirect(add_query_arg('mdp_checked', '1', admin_url('plugins.php')));
+        exit;
+    }
+
+    /** Уведомление после ручной проверки. */
+    public function checked_notice() {
+        if (empty($_GET['mdp_checked'])) {
+            return;
+        }
+        $release = $this->get_release();
+        $latest  = $release ? $this->remote_version($release) : '';
+        $msg = $latest && version_compare($latest, $this->version, '>')
+            ? sprintf('Meta Dynamic Pixel: доступна версия %s (у вас %s) — обновление появилось в списке.', $latest, $this->version)
+            : 'Meta Dynamic Pixel: проверка выполнена, установлена актуальная версия.';
+        echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($msg) . '</p></div>';
     }
 
     /** Получить последний релиз с GitHub (с кэшем). */

@@ -5,7 +5,7 @@ Tags: facebook, meta, pixel, conversions api, utm, woocommerce
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.2
-Stable tag: 1.1.5
+Stable tag: 1.1.6
 License: GPLv2 or later
 
 Динамический пиксель Meta (Facebook/Instagram) с UTM-атрибуцией, реферером,
@@ -43,6 +43,10 @@ origin лида, отслеживанием покупки на странице
 * Серверные события — Events Manager → Test Events (введите Test Event Code в настройках).
 
 == Журнал изменений ==
+
+= 1.1.6 =
+* В строке плагина добавлена ссылка «Проверить обновления»: сбрасывает кэш и сразу
+  запрашивает GitHub, не дожидаясь плановой проверки WordPress (~12 ч).
 
 = 1.1.5 =
 * Аналитика стала валюто-зависимой: «Выручка» и «Средний чек» считаются и показываются
