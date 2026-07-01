@@ -57,7 +57,7 @@ class MDP_Settings {
         $out['retention_days']    = max(1, min(365, intval($input['retention_days'] ?? 90)));
         $out['thankyou_page_ids'] = sanitize_text_field($input['thankyou_page_ids'] ?? '');
         $out['thankyou_value']    = sanitize_text_field($input['thankyou_value'] ?? '');
-        $out['thankyou_currency'] = sanitize_text_field($input['thankyou_currency'] ?? 'RUB');
+        $out['thankyou_currency'] = strtoupper(sanitize_text_field($input['thankyou_currency'] ?? 'USD'));
 
         $checkboxes = array(
             'enable_capi', 'enable_advanced_matching', 'track_pageview',

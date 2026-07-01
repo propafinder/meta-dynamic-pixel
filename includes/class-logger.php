@@ -163,13 +163,28 @@ class MDP_Logger {
         $purchases = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Purchase' AND created_at >= %s", $since
         ));
-        // Выручка: по одной строке на event_id (чтобы браузер+сервер не удваивали)
-        $revenue = (float) $wpdb->get_var($wpdb->prepare(
-            "SELECT COALESCE(SUM(v),0) FROM (
-                SELECT MAX(value) v FROM $t
-                WHERE event_name='Purchase' AND created_at >= %s GROUP BY event_id
-            ) x", $since
+
+        // Выручка и средний чек — РАЗДЕЛЬНО по валютам (покупки в £, лиды в $ и т.п.).
+        // По одной строке на event_id (чтобы браузер+сервер не удваивали).
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT currency, COUNT(*) AS purchases, COALESCE(SUM(v),0) AS revenue FROM (
+                SELECT event_id, currency, MAX(value) AS v FROM $t
+                WHERE event_name='Purchase' AND created_at >= %s
+                GROUP BY event_id, currency
+            ) x GROUP BY currency ORDER BY revenue DESC", $since
         ));
+        $by_currency = array();
+        foreach ((array) $rows as $r) {
+            $p   = (int) $r->purchases;
+            $rev = (float) $r->revenue;
+            $by_currency[] = array(
+                'currency'  => $r->currency !== '' ? $r->currency : '—',
+                'purchases' => $p,
+                'revenue'   => $rev,
+                'aov'       => $p ? $rev / $p : 0,
+            );
+        }
+
         $browser = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $t WHERE channel='browser' AND created_at >= %s", $since
         ));
@@ -178,12 +193,11 @@ class MDP_Logger {
         ));
 
         return array(
-            'events'    => $events,
-            'purchases' => $purchases,
-            'revenue'   => $revenue,
-            'aov'       => $purchases ? $revenue / $purchases : 0,
-            'browser'   => $browser,
-            'server'    => $server,
+            'events'      => $events,
+            'purchases'   => $purchases,
+            'by_currency' => $by_currency,
+            'browser'     => $browser,
+            'server'      => $server,
         );
     }
 

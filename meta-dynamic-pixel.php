@@ -3,7 +3,7 @@
  * Plugin Name: Meta Dynamic Pixel
  * Plugin URI:  https://example.com/meta-dynamic-pixel
  * Description: Динамический пиксель Meta (Facebook/Instagram): ID + токен Conversions API, авто-проброс UTM-меток, запоминание реферера и origin (откуда пришёл лид), сквозное отслеживание до покупки на странице "Спасибо" (thank you). Серверная отправка событий (CAPI) с дедупликацией.
- * Version:     1.1.4
+ * Version:     1.1.5
  * Author:      Degree Team
  * Author URI:  https://example.com/
  * License:     GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit; // Прямой доступ запрещён
 }
 
-define('MDP_VERSION', '1.1.4');
+define('MDP_VERSION', '1.1.5');
 define('MDP_FILE', __FILE__);
 define('MDP_PATH', plugin_dir_path(__FILE__));
 define('MDP_URL', plugin_dir_url(__FILE__));
@@ -42,7 +42,7 @@ function mdp_default_settings() {
         'capi_pageview'            => 0,    // Дублировать PageView через сервер (обычно не нужно)
         'thankyou_page_ids'        => '',   // ID страниц "Спасибо" для не-WooCommerce (через запятую)
         'thankyou_value'           => '',   // Значение покупки по умолчанию для таких страниц
-        'thankyou_currency'        => 'RUB',
+        'thankyou_currency'        => 'USD', // Валюта лидов (лендинговые "Спасибо") — доллары
         'enable_logging'           => 1,    // Вести встроенную аналитику (своя таблица в БД)
         'exclude_admins'           => 1,    // Не учитывать авторизованных редакторов/админов
         'retention_days'           => 90,   // Сколько хранить записи аналитики

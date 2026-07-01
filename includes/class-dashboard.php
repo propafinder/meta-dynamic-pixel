@@ -41,8 +41,26 @@ class MDP_Dashboard {
         exit;
     }
 
+    /** Символ валюты перед суммой (£/$/€/₽), иначе код после суммы. */
     private function money($v, $cur = '') {
-        return number_format_i18n((float) $v, 2) . ($cur ? ' ' . $cur : '');
+        $symbols = array('GBP' => '£', 'USD' => '$', 'EUR' => '€', 'RUB' => '₽', 'UAH' => '₴');
+        $num = number_format_i18n((float) $v, 2);
+        if ($cur === '' || $cur === '—') {
+            return $num;
+        }
+        return isset($symbols[$cur]) ? $symbols[$cur] . $num : $num . ' ' . $cur;
+    }
+
+    /** Деньги по всем валютам через разделитель: «£17.97 · $50.00». */
+    private function money_multi($by_currency, $key) {
+        if (empty($by_currency)) {
+            return $this->money(0);
+        }
+        $parts = array();
+        foreach ($by_currency as $c) {
+            $parts[] = $this->money($c[$key], $c['currency']);
+        }
+        return implode('  ·  ', $parts);
     }
 
     public function render() {
@@ -91,8 +109,8 @@ class MDP_Dashboard {
                 <?php
                 $this->card('Событий', number_format_i18n($totals['events']));
                 $this->card('Покупок', number_format_i18n($totals['purchases']));
-                $this->card('Выручка', $this->money($totals['revenue'], mdp_get('thankyou_currency')));
-                $this->card('Средний чек', $this->money($totals['aov'], mdp_get('thankyou_currency')));
+                $this->card('Выручка', $this->money_multi($totals['by_currency'], 'revenue'));
+                $this->card('Средний чек', $this->money_multi($totals['by_currency'], 'aov'));
                 $this->card('Браузер (Pixel)', number_format_i18n($totals['browser']));
                 $this->card('Сервер (CAPI)', number_format_i18n($totals['server']));
                 ?>
