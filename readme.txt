@@ -5,7 +5,7 @@ Tags: facebook, meta, pixel, conversions api, utm, woocommerce
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.2
-Stable tag: 1.1.6
+Stable tag: 1.1.7
 License: GPLv2 or later
 
 Динамический пиксель Meta (Facebook/Instagram) с UTM-атрибуцией, реферером,
@@ -43,6 +43,14 @@ origin лида, отслеживанием покупки на странице
 * Серверные события — Events Manager → Test Events (введите Test Event Code в настройках).
 
 == Журнал изменений ==
+
+= 1.1.7 =
+* Исправлено: AddToCart не отслеживался вовсе (в воронке был 0). Woo кидает
+  added_to_cart как jQuery-событие, которое нативный слушатель не видит — теперь
+  слушаем через jQuery; плюс поддержано не-AJAX добавление (submit с редиректом)
+  через сессию Woo, с content_ids, value/currency и eventID.
+* Исправлено: внутренние переходы по сайту засчитывались источником (origin =
+  собственный домен). Самореферал теперь игнорируется — такие заходы считаются direct.
 
 = 1.1.6 =
 * В строке плагина добавлена ссылка «Проверить обновления»: сбрасывает кэш и сразу

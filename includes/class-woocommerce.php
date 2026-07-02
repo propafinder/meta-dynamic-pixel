@@ -18,6 +18,9 @@ class MDP_WooCommerce {
         }
         if (mdp_get('track_addtocart')) {
             add_action('wp_footer', array($this, 'add_to_cart_listener'));
+            // Не-AJAX добавление (submit формы с редиректом) не даёт JS-события —
+            // запоминаем в сессии Woo и выводим событие на следующей странице.
+            add_action('woocommerce_add_to_cart', array($this, 'note_add_to_cart'), 10, 4);
         }
         if (mdp_get('track_initiatecheckout')) {
             add_action('woocommerce_after_checkout_form', array($this, 'initiate_checkout'));
@@ -119,15 +122,64 @@ class MDP_WooCommerce {
         <?php
     }
 
-    /** Добавление в корзину (через AJAX-кнопки Woo). */
+    /**
+     * Не-AJAX добавление в корзину: сохраняем данные товара в сессии Woo,
+     * событие выведем на следующей загрузке страницы (add_to_cart_listener).
+     * AJAX-кнопки сюда не попадают — их ловит jQuery-событие added_to_cart.
+     */
+    public function note_add_to_cart($cart_item_key, $product_id, $quantity, $variation_id = 0) {
+        if (wp_doing_ajax() || isset($_REQUEST['wc-ajax'])) return;
+        if (mdp_is_excluded()) return;
+        if (!function_exists('WC') || !WC()->session) return;
+
+        $pid     = $variation_id ? $variation_id : $product_id;
+        $product = wc_get_product($pid);
+        WC()->session->set('mdp_atc', array(
+            'id'       => (string) $pid,
+            'value'    => $product ? (float) $product->get_price() * max(1, (int) $quantity) : 0,
+            'currency' => get_woocommerce_currency(),
+        ));
+    }
+
+    /**
+     * Добавление в корзину — оба сценария:
+     *  - AJAX-кнопки: Woo кидает jQuery-событие added_to_cart; нативный
+     *    addEventListener его НЕ видит (jQuery.trigger не диспатчит DOM-событие),
+     *    поэтому слушаем через jQuery.
+     *  - Обычный submit с редиректом: берём данные из сессии (note_add_to_cart).
+     */
     public function add_to_cart_listener() {
         if (mdp_is_excluded()) return;
+
+        $atc = (function_exists('WC') && WC()->session) ? WC()->session->get('mdp_atc') : null;
+        if ($atc) {
+            WC()->session->set('mdp_atc', null); // показываем один раз
+        }
+        $event_id = MDP_Pixel::event_id('atc');
         ?>
         <script>
-        document.body.addEventListener('added_to_cart', function () {
-            if (window.fbq) fbq('track', 'AddToCart', window.mdpAttr || {});
-            if (window.mdpTrack) mdpTrack('AddToCart', 0, '');
-        });
+        (function () {
+            function mdpSendATC(data, eventId) {
+                if (window.fbq) fbq('track', 'AddToCart', Object.assign(data, window.mdpAttr || {}), eventId ? {eventID: eventId} : undefined);
+                if (window.mdpTrack) mdpTrack('AddToCart', data.value || 0, data.currency || '', eventId || '');
+            }
+            <?php if (!empty($atc)) : ?>
+            mdpSendATC({
+                content_ids: [<?php echo wp_json_encode($atc['id']); ?>],
+                content_type: 'product',
+                value: <?php echo floatval($atc['value']); ?>,
+                currency: <?php echo wp_json_encode($atc['currency']); ?>
+            }, <?php echo wp_json_encode($event_id); ?>);
+            <?php endif; ?>
+            if (window.jQuery) {
+                jQuery(document.body).on('added_to_cart', function (e, fragments, hash, button) {
+                    var pid = (button && button.data) ? String(button.data('product_id') || '') : '';
+                    mdpSendATC(pid ? {content_ids: [pid], content_type: 'product'} : {});
+                });
+            } else {
+                document.body.addEventListener('added_to_cart', function () { mdpSendATC({}); });
+            }
+        })();
         </script>
         <?php
     }

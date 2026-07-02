@@ -74,6 +74,9 @@
         var refHost2 = '';
         var ref = getCookie('mdp_referrer') || document.referrer;
         try { refHost2 = ref ? new URL(ref).hostname : ''; } catch (e) {}
+        // Самореферал: переход внутри своего же сайта — не источник (иначе в отчёте
+        // появляется собственный домен). Считаем такой заход прямым.
+        if (refHost2 && refHost2 === window.location.hostname) { refHost2 = ''; }
         var origin = classify(refHost2, current.utm_source);
         // fbclid в URL — почти всегда трафик из Facebook/Instagram Ads
         if (param('fbclid') && origin === 'direct') { origin = 'facebook'; }
