@@ -33,7 +33,7 @@ class MDP_CAPI {
     }
 
     /** IP клиента. */
-    private function client_ip() {
+    public function client_ip() {
         foreach (array('HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR') as $k) {
             if (empty($_SERVER[$k])) {
                 continue;
@@ -66,13 +66,20 @@ class MDP_CAPI {
 
         $am = mdp_get('enable_advanced_matching');
 
-        // Базовые данные пользователя для матчинга
+        // Базовые данные пользователя для матчинга. Через $user_data можно передать
+        // значения, сохранённые ранее (например, в мете заказа на момент оформления):
+        // когда оплату подтверждает IPN/webhook шлюза, в запросе нет cookie покупателя,
+        // а IP и user-agent принадлежат шлюзу — без сохранённых значений матчинг падает.
         $ud = array(
-            'client_ip_address' => $this->client_ip(),
-            'client_user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
+            'client_ip_address' => !empty($user_data['client_ip_address'])
+                ? sanitize_text_field($user_data['client_ip_address'])
+                : $this->client_ip(),
+            'client_user_agent' => !empty($user_data['client_user_agent'])
+                ? sanitize_text_field($user_data['client_user_agent'])
+                : (isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : ''),
         );
-        $fbp = MDP_Attribution::get_fbp();
-        $fbc = MDP_Attribution::get_fbc();
+        $fbp = !empty($user_data['fbp']) ? $user_data['fbp'] : MDP_Attribution::get_fbp();
+        $fbc = !empty($user_data['fbc']) ? $user_data['fbc'] : MDP_Attribution::get_fbc();
         if ($fbp) $ud['fbp'] = $fbp;
         if ($fbc) $ud['fbc'] = $fbc;
 
@@ -98,7 +105,9 @@ class MDP_CAPI {
             'event_time'       => time(),
             'event_id'         => $event_id,
             'action_source'    => 'website',
-            'event_source_url' => $this->current_url(),
+            'event_source_url' => !empty($user_data['event_source_url'])
+                ? esc_url_raw($user_data['event_source_url'])
+                : $this->current_url(),
             'user_data'        => array_filter($ud),
         );
         if (!empty($custom_data)) {

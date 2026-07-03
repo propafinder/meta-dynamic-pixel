@@ -5,7 +5,7 @@ Tags: facebook, meta, pixel, conversions api, utm, woocommerce
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.2
-Stable tag: 1.1.7
+Stable tag: 1.1.8
 License: GPLv2 or later
 
 Динамический пиксель Meta (Facebook/Instagram) с UTM-атрибуцией, реферером,
@@ -43,6 +43,15 @@ origin лида, отслеживанием покупки на странице
 * Серверные события — Events Manager → Test Events (введите Test Event Code в настройках).
 
 == Журнал изменений ==
+
+= 1.1.8 =
+* CAPI: качество матчинга. При оформлении заказа в мету заказа сохраняется снимок
+  браузерного контекста (fbp/fbc, IP, user-agent, external_id гостя, UTM/origin).
+  Серверный Purchase, отправляемый по IPN/webhook шлюза или смене статуса, теперь
+  уходит с идентификаторами покупателя, а не платёжного шлюза, и с event_source_url
+  страницы «Спасибо», а не вебхука.
+* CAPI: PageView и Purchase на лендинговых страницах «Спасибо» теперь передают
+  email/телефон/имя залогиненного пользователя (хэшированные) и external_id.
 
 = 1.1.7 =
 * Исправлено: AddToCart не отслеживался вовсе (в воронке был 0). Woo кидает

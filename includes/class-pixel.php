@@ -108,7 +108,7 @@ class MDP_Pixel {
         <?php if (mdp_get('track_pageview')) :
             $pv_id = self::event_id('pv');
             if (mdp_get('capi_pageview')) {
-                $this->capi->send('PageView', $pv_id, MDP_Attribution::attribution_payload());
+                $this->capi->send('PageView', $pv_id, MDP_Attribution::attribution_payload(), MDP_Attribution::user_identity());
             }
         ?>
         fbq('track', 'PageView', window.mdpAttr, {eventID: '<?php echo esc_js($pv_id); ?>'});
@@ -169,7 +169,7 @@ class MDP_Pixel {
         $guard = 'mdp_pp_' . md5($event_id);
         if (false === get_transient($guard)) {
             $custom = array_merge(array('value' => $value, 'currency' => $currency), MDP_Attribution::attribution_payload());
-            $this->capi->send('Purchase', $event_id, $custom);
+            $this->capi->send('Purchase', $event_id, $custom, MDP_Attribution::user_identity());
             set_transient($guard, 1, DAY_IN_SECONDS);
         }
 

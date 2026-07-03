@@ -31,6 +31,32 @@ class MDP_WooCommerce {
             // серверный Purchase уходит, когда платёж реально подтверждён.
             add_action('woocommerce_payment_complete', array($this, 'maybe_capi_purchase'), 10, 1);
             add_action('woocommerce_order_status_completed', array($this, 'maybe_capi_purchase'), 10, 1);
+            // В момент оформления запоминаем в заказе браузерные идентификаторы и
+            // атрибуцию — IPN/webhook шлюза не несёт cookie покупателя.
+            add_action('woocommerce_checkout_create_order', array($this, 'stash_attribution'), 10, 1);
+            add_action('woocommerce_store_api_checkout_update_order_from_request', array($this, 'stash_attribution'), 10, 1);
+        }
+    }
+
+    /**
+     * Снимок браузерного контекста покупателя в мету заказа: fbp/fbc, IP, user-agent,
+     * external_id гостя и UTM/origin. Используется серверным Purchase, когда событие
+     * триггерится не из браузера покупателя (IPN, смена статуса в админке).
+     */
+    public function stash_attribution($order) {
+        if (!$order instanceof WC_Order) return;
+        $fbp = MDP_Attribution::get_fbp();
+        $fbc = MDP_Attribution::get_fbc();
+        if ($fbp) $order->update_meta_data('_mdp_fbp', $fbp);
+        if ($fbc) $order->update_meta_data('_mdp_fbc', $fbc);
+        $order->update_meta_data('_mdp_ip', $this->capi->client_ip());
+        $order->update_meta_data('_mdp_ua', isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '');
+        if (!empty($_COOKIE['mdp_xid'])) {
+            $order->update_meta_data('_mdp_xid', sanitize_text_field(wp_unslash($_COOKIE['mdp_xid'])));
+        }
+        $attr = MDP_Attribution::attribution_payload();
+        if ($attr) {
+            $order->update_meta_data('_mdp_attr', wp_json_encode($attr));
         }
     }
 
@@ -54,13 +80,19 @@ class MDP_WooCommerce {
         foreach ($order->get_items() as $item) {
             $content_ids[] = (string) $item->get_product_id();
         }
+        // Атрибуция: приоритет — снимок на момент оформления (в IPN-запросе cookie
+        // покупателя нет, а снимок точнее отражает источник именно этой покупки).
+        $attr = json_decode((string) $order->get_meta('_mdp_attr'), true);
+        if (!is_array($attr) || !$attr) {
+            $attr = MDP_Attribution::attribution_payload();
+        }
         return array_merge(array(
             'value'        => floatval($order->get_total()),
             'currency'     => $order->get_currency(),
             'content_ids'  => $content_ids,
             'content_type' => 'product',
             'order_id'     => (string) $order->get_id(),
-        ), MDP_Attribution::attribution_payload());
+        ), $attr);
     }
 
     /**
@@ -90,8 +122,19 @@ class MDP_WooCommerce {
             'country'     => $order->get_billing_country(),
             'external_id' => $order->get_customer_id()
                 ? 'uid_' . $order->get_customer_id()
-                : (isset($_COOKIE['mdp_xid']) ? sanitize_text_field(wp_unslash($_COOKIE['mdp_xid'])) : ''),
+                : ($order->get_meta('_mdp_xid')
+                    ?: (isset($_COOKIE['mdp_xid']) ? sanitize_text_field(wp_unslash($_COOKIE['mdp_xid'])) : '')),
+            // Страница, где произошло событие, — «Спасибо» заказа (а не URL вебхука)
+            'event_source_url' => $order->get_checkout_order_received_url(),
         );
+        // Браузерные идентификаторы из снимка на момент оформления: IPN-запрос шлюза
+        // не несёт cookie покупателя, его IP/user-agent — это IP шлюза, не клиента.
+        foreach (array('fbp' => '_mdp_fbp', 'fbc' => '_mdp_fbc', 'client_ip_address' => '_mdp_ip', 'client_user_agent' => '_mdp_ua') as $key => $meta) {
+            $v = $order->get_meta($meta);
+            if ($v) {
+                $user[$key] = $v;
+            }
+        }
 
         $this->capi->send('Purchase', 'purchase.' . $order->get_id(), $this->purchase_custom($order), $user);
         $order->update_meta_data('_mdp_capi_sent', '1');

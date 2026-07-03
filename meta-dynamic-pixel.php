@@ -3,7 +3,7 @@
  * Plugin Name: Meta Dynamic Pixel
  * Plugin URI:  https://example.com/meta-dynamic-pixel
  * Description: Динамический пиксель Meta (Facebook/Instagram): ID + токен Conversions API, авто-проброс UTM-меток, запоминание реферера и origin (откуда пришёл лид), сквозное отслеживание до покупки на странице "Спасибо" (thank you). Серверная отправка событий (CAPI) с дедупликацией.
- * Version:     1.1.7
+ * Version:     1.1.8
  * Author:      Degree Team
  * Author URI:  https://example.com/
  * License:     GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit; // Прямой доступ запрещён
 }
 
-define('MDP_VERSION', '1.1.7');
+define('MDP_VERSION', '1.1.8');
 define('MDP_FILE', __FILE__);
 define('MDP_PATH', plugin_dir_path(__FILE__));
 define('MDP_URL', plugin_dir_url(__FILE__));
