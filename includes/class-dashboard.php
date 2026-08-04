@@ -89,6 +89,19 @@ class MDP_Dashboard {
                 <span style="font-size:12px;font-weight:400;color:#646970">данные внутри сайта, без обращения к Meta</span>
             </h1>
 
+            <?php
+            // Явно предупреждаем, если серверная отправка не работает: без неё Meta
+            // теряет события пользователей с блокировщиками, и цифры расходятся.
+            $capi_reason = MDP_CAPI::inactive_reason();
+            if ($capi_reason) :
+            ?>
+                <div class="notice notice-warning">
+                    <p><strong>Conversions API не работает</strong> — <?php echo esc_html($capi_reason); ?>.
+                    Без серверной отправки часть событий не доходит до Meta (блокировщики рекламы, iOS).
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=mdp-settings')); ?>">Открыть настройки</a></p>
+                </div>
+            <?php endif; ?>
+
             <?php if (!$logging_on) : ?>
                 <div class="notice notice-warning"><p>Логирование выключено. Включите его в «Настройках», чтобы собирать аналитику.</p></div>
             <?php endif; ?>

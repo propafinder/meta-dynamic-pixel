@@ -9,9 +9,21 @@ class MDP_CAPI {
 
     const ENDPOINT = 'https://graph.facebook.com/v19.0/';
 
-    /** Включён ли CAPI и заданы ли реквизиты. */
+    /**
+     * CAPI работает автоматически, как только заданы Pixel ID и токен: если токен
+     * вставлен, значит серверная отправка и нужна — отдельная галка была лишним
+     * трением. Явное отключение (capi_off) оставлено на случай отладки.
+     */
     public function is_active() {
-        return mdp_get('enable_capi') && mdp_get('pixel_id') && mdp_get('access_token');
+        return mdp_get('pixel_id') && mdp_get('access_token') && !mdp_get('capi_off');
+    }
+
+    /** Причина, по которой CAPI не активен (для подсказки в админке). */
+    public static function inactive_reason() {
+        if (!mdp_get('pixel_id'))     return 'не указан Pixel ID';
+        if (!mdp_get('access_token')) return 'не указан Access Token (создайте его в Events Manager)';
+        if (mdp_get('capi_off'))      return 'выключен вручную галкой ниже';
+        return '';
     }
 
     /** SHA-256 хэш с нормализацией (lowercase + trim) — для email, имени и т.п. */

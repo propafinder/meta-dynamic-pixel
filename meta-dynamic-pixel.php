@@ -3,7 +3,7 @@
  * Plugin Name: Meta Dynamic Pixel
  * Plugin URI:  https://example.com/meta-dynamic-pixel
  * Description: Динамический пиксель Meta (Facebook/Instagram): ID + токен Conversions API, авто-проброс UTM-меток, запоминание реферера и origin (откуда пришёл лид), сквозное отслеживание до покупки на странице "Спасибо" (thank you). Серверная отправка событий (CAPI) с дедупликацией.
- * Version:     1.2.0
+ * Version:     1.2.1
  * Author:      Degree Team
  * Author URI:  https://example.com/
  * License:     GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit; // Прямой доступ запрещён
 }
 
-define('MDP_VERSION', '1.2.0');
+define('MDP_VERSION', '1.2.1');
 define('MDP_FILE', __FILE__);
 define('MDP_PATH', plugin_dir_path(__FILE__));
 define('MDP_URL', plugin_dir_url(__FILE__));
@@ -31,7 +31,7 @@ function mdp_default_settings() {
         'pixel_id'                 => '',
         'access_token'             => '',   // Токен Conversions API (необязателен)
         'test_event_code'         => '',    // Код тестового события из Events Manager
-        'enable_capi'              => 0,    // Серверная отправка (CAPI)
+        'capi_off'                 => 0,    // Аварийное отключение CAPI (обычно не нужно)
         'enable_advanced_matching' => 1,    // Расширенное сопоставление (хэш email/телефона)
         'attribution_days'         => 90,   // Срок хранения атрибуции (cookie), дней
         'track_pageview'           => 1,

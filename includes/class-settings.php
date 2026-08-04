@@ -60,7 +60,7 @@ class MDP_Settings {
         $out['thankyou_currency'] = strtoupper(sanitize_text_field($input['thankyou_currency'] ?? 'USD'));
 
         $checkboxes = array(
-            'enable_capi', 'enable_advanced_matching', 'track_pageview',
+            'capi_off', 'enable_advanced_matching', 'track_pageview',
             'track_viewcontent', 'track_addtocart', 'track_initiatecheckout',
             'track_purchase', 'track_lead', 'capi_pageview', 'enable_logging', 'exclude_admins',
         );
@@ -134,8 +134,27 @@ class MDP_Settings {
                     <tr>
                         <th scope="row">Серверная отправка</th>
                         <td>
-                            <?php $this->cb($s, 'enable_capi', 'Включить Conversions API (CAPI)', 'События дублируются с сервера. Дедупликация по event_id выполняется автоматически.'); ?>
+                            <?php
+                            $capi   = new MDP_CAPI();
+                            $active = $capi->is_active();
+                            $reason = MDP_CAPI::inactive_reason();
+                            printf(
+                                '<p style="margin:0 0 10px;padding:10px 12px;border-radius:6px;background:%s;border:1px solid %s">
+                                    <strong>%s</strong>%s
+                                 </p>',
+                                $active ? '#edfaef' : '#fcf0f1',
+                                $active ? '#68de7c' : '#e6a0a4',
+                                $active ? '✅ Conversions API работает' : '⛔ Conversions API не работает',
+                                $active
+                                    ? ' — события дублируются с сервера, дедупликация по event_id автоматическая.'
+                                    : ' — ' . esc_html($reason) . '.'
+                            );
+                            ?>
+                            <p class="description" style="margin:0 0 12px">
+                                Отдельно включать ничего не нужно: серверная отправка запускается сама, как только заданы Pixel ID и Access Token.
+                            </p>
                             <?php $this->cb($s, 'enable_advanced_matching', 'Расширенное сопоставление (хэшировать email/телефон/имя)'); ?>
+                            <?php $this->cb($s, 'capi_off', 'Временно отключить Conversions API', 'Только для отладки. В обычной работе держите выключенным.'); ?>
                             <?php $this->cb($s, 'capi_pageview', 'Дублировать PageView через сервер', 'Обычно не требуется. Включайте только при необходимости.'); ?>
                         </td>
                     </tr>
