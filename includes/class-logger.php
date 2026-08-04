@@ -109,7 +109,7 @@ class MDP_Logger {
         $name = isset($_POST['event_name']) ? sanitize_text_field(wp_unslash($_POST['event_name'])) : '';
         // Принимаем только известные стандартные события — отсекает случайный мусор
         // и спам в таблицу аналитики.
-        $allowed = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Purchase');
+        $allowed = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Lead', 'Purchase');
         if (!in_array($name, $allowed, true)) {
             wp_die('badname');
         }
@@ -163,6 +163,9 @@ class MDP_Logger {
         $purchases = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Purchase' AND created_at >= %s", $since
         ));
+        $leads = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Lead' AND created_at >= %s", $since
+        ));
 
         // Выручка и средний чек — РАЗДЕЛЬНО по валютам (покупки в £, лиды в $ и т.п.).
         // По одной строке на event_id (чтобы браузер+сервер не удваивали).
@@ -195,6 +198,7 @@ class MDP_Logger {
         return array(
             'events'      => $events,
             'purchases'   => $purchases,
+            'leads'       => $leads,
             'by_currency' => $by_currency,
             'browser'     => $browser,
             'server'      => $server,
@@ -206,7 +210,7 @@ class MDP_Logger {
         global $wpdb;
         $t = self::table();
         $since = self::since($days);
-        $steps = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Purchase');
+        $steps = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Lead', 'Purchase');
         $out = array();
         foreach ($steps as $s) {
             $out[$s] = (int) $wpdb->get_var($wpdb->prepare(
@@ -249,6 +253,57 @@ class MDP_Logger {
              FROM $t WHERE created_at >= %s AND $column <> ''
              GROUP BY $column ORDER BY c DESC LIMIT %d", $since, $limit
         ));
+    }
+
+    /**
+     * Главный отчёт: по каждому источнику — визиты, лиды, покупки, выручка и
+     * конверсия. Именно этот срез нужен, чтобы понимать, какой трафик окупается.
+     */
+    public static function by_source($column, $days, $limit = 20) {
+        global $wpdb;
+        $allowed = array('origin', 'utm_source', 'utm_campaign');
+        if (!in_array($column, $allowed, true)) {
+            return array();
+        }
+        $t = self::table();
+        $since = self::since($days);
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT $column AS label,
+                    COUNT(DISTINCT CASE WHEN event_name='PageView' THEN event_id END) AS visits,
+                    COUNT(DISTINCT CASE WHEN event_name='Lead' THEN event_id END) AS leads,
+                    COUNT(DISTINCT CASE WHEN event_name='Purchase' THEN event_id END) AS purchases
+             FROM $t WHERE created_at >= %s AND $column <> ''
+             GROUP BY $column
+             ORDER BY purchases DESC, leads DESC, visits DESC
+             LIMIT %d", $since, $limit
+        ), OBJECT_K);
+
+        if (empty($rows)) {
+            return array();
+        }
+        foreach ($rows as $r) {
+            $r->revenue = array(); // [ ['currency'=>'GBP','sum'=>123.0], ... ]
+        }
+
+        // Выручка: одна строка на event_id (браузер+сервер не удваиваем), по валютам.
+        $rev = $wpdb->get_results($wpdb->prepare(
+            "SELECT label, currency, SUM(v) AS revenue FROM (
+                SELECT $column AS label, event_id, currency, MAX(value) AS v
+                FROM $t
+                WHERE event_name='Purchase' AND created_at >= %s AND $column <> ''
+                GROUP BY $column, event_id, currency
+             ) x GROUP BY label, currency", $since
+        ));
+        foreach ((array) $rev as $r) {
+            if (isset($rows[$r->label])) {
+                $rows[$r->label]->revenue[] = array(
+                    'currency' => $r->currency,
+                    'sum'      => (float) $r->revenue,
+                );
+            }
+        }
+        return $rows;
     }
 
     /** Последние события. */

@@ -107,6 +107,13 @@
         setCookie('mdp_xid', uuid(), Math.max(DAYS, 365));
     }
 
+    // Генератор event_id на стороне браузера. Нужен для страниц под кэшем: если id
+    // печатает PHP, закэшированный HTML раздаёт ОДИН id всем посетителям, и Meta
+    // склеивает их в одно событие по дедупликации.
+    window.mdpEventId = function (prefix) {
+        return (prefix || 'ev') + '.' + uuid();
+    };
+
     /* ---------- 5. Логирование событий во встроенную аналитику ---------- */
     window.mdpTrack = function (name, value, currency, eventId) {
         if (!window.MDP_LOG || !MDP_LOG.enabled) return;

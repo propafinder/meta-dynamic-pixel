@@ -73,9 +73,11 @@ class MDP_Dashboard {
         $totals = MDP_Logger::totals($days);
         $funnel = MDP_Logger::funnel($days);
         $byday  = MDP_Logger::by_day($days);
-        $origins = MDP_Logger::top('origin', $days);
-        $sources = MDP_Logger::top('utm_source', $days);
-        $campaigns = MDP_Logger::top('utm_campaign', $days);
+        $src_col = isset($_GET['src']) ? sanitize_key($_GET['src']) : 'origin';
+        if (!in_array($src_col, array('origin', 'utm_source', 'utm_campaign'), true)) {
+            $src_col = 'origin';
+        }
+        $by_source = MDP_Logger::by_source($src_col, $days);
         $recent = MDP_Logger::recent(25);
 
         $logging_on = mdp_get('enable_logging');
@@ -99,7 +101,7 @@ class MDP_Dashboard {
                 $labels = array(1 => 'Сегодня', 7 => '7 дней', 30 => '30 дней', 90 => '90 дней');
                 foreach ($labels as $r => $label) {
                     $cls = ($r === $days) ? 'button button-primary' : 'button';
-                    printf('<a class="%s" href="%s">%s</a> ', esc_attr($cls), esc_url(add_query_arg('range', $r, $base)), esc_html($label));
+                    printf('<a class="%s" href="%s">%s</a> ', esc_attr($cls), esc_url(add_query_arg(array('range' => $r, 'src' => $src_col), $base)), esc_html($label));
                 }
                 ?>
             </p>
@@ -107,12 +109,13 @@ class MDP_Dashboard {
             <!-- KPI -->
             <div class="mdp-cards">
                 <?php
-                $this->card('Событий', number_format_i18n($totals['events']));
+                $this->card('Событий (уник.)', number_format_i18n($totals['events']));
+                $this->card('Лидов', number_format_i18n($totals['leads']));
                 $this->card('Покупок', number_format_i18n($totals['purchases']));
                 $this->card('Выручка', $this->money_multi($totals['by_currency'], 'revenue'));
                 $this->card('Средний чек', $this->money_multi($totals['by_currency'], 'aov'));
-                $this->card('Браузер (Pixel)', number_format_i18n($totals['browser']));
-                $this->card('Сервер (CAPI)', number_format_i18n($totals['server']));
+                $this->card('Записей: браузер', number_format_i18n($totals['browser']));
+                $this->card('Записей: сервер', number_format_i18n($totals['server']));
                 ?>
             </div>
 
@@ -130,10 +133,23 @@ class MDP_Dashboard {
                 </div>
             </div>
 
-            <div class="mdp-grid3">
-                <div class="mdp-box"><h2>Откуда пришли (origin)</h2><?php $this->top_table($origins); ?></div>
-                <div class="mdp-box"><h2>UTM Source</h2><?php $this->top_table($sources); ?></div>
-                <div class="mdp-box"><h2>UTM Campaign</h2><?php $this->top_table($campaigns); ?></div>
+            <!-- Главный отчёт: какой трафик приносит лиды и деньги -->
+            <div class="mdp-box">
+                <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    Источники → лиды → покупки
+                    <span style="font-weight:400;color:#646970;font-size:12px">разрез:</span>
+                    <?php
+                    $cols = array('origin' => 'Источник', 'utm_source' => 'UTM Source', 'utm_campaign' => 'UTM Campaign');
+                    foreach ($cols as $c => $lbl) {
+                        $cls = ($c === $src_col) ? 'button button-small button-primary' : 'button button-small';
+                        printf('<a class="%s" href="%s">%s</a> ',
+                            esc_attr($cls),
+                            esc_url(add_query_arg(array('range' => $days, 'src' => $c), $base)),
+                            esc_html($lbl));
+                    }
+                    ?>
+                </h2>
+                <?php $this->source_table($by_source); ?>
             </div>
 
             <!-- Последние события -->
@@ -171,9 +187,7 @@ class MDP_Dashboard {
         </div>
 
         <style>
-            .mdp-cards{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:16px 0}
-            @media(max-width:1200px){.mdp-cards{grid-template-columns:repeat(3,1fr)}}
-            @media(max-width:782px){.mdp-cards{grid-template-columns:repeat(2,1fr)}}
+            .mdp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:16px 0}
             .mdp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:14px 16px}
             .mdp-card .l{color:#646970;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
             .mdp-card .v{font-size:24px;font-weight:700;margin-top:6px;color:#1d2327}
@@ -231,6 +245,42 @@ class MDP_Dashboard {
             );
         }
         echo '</div>';
+    }
+
+    /** Таблица «источник → визиты → лиды → покупки → выручка». */
+    private function source_table($rows) {
+        if (empty($rows)) {
+            echo '<p style="color:#646970;font-size:13px">Нет данных за период.</p>';
+            return;
+        }
+        echo '<div style="overflow-x:auto"><table class="widefat striped"><thead><tr>'
+            . '<th>Источник</th><th>Визиты</th><th>Лиды</th><th>Покупки</th>'
+            . '<th>Выручка</th><th>Визит→лид</th><th>Лид→покупка</th>'
+            . '</tr></thead><tbody>';
+        foreach ($rows as $r) {
+            $visits    = (int) $r->visits;
+            $leads     = (int) $r->leads;
+            $purchases = (int) $r->purchases;
+
+            $rev_parts = array();
+            foreach ((array) $r->revenue as $rev) {
+                $rev_parts[] = $this->money($rev['sum'], $rev['currency']);
+            }
+            $cr_lead = $visits ? round($leads / $visits * 100, 1) . '%' : '—';
+            $cr_buy  = $leads ? round($purchases / $leads * 100, 1) . '%' : '—';
+
+            printf(
+                '<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                esc_html($r->label),
+                esc_html(number_format_i18n($visits)),
+                $leads ? esc_html(number_format_i18n($leads)) : '—',
+                $purchases ? '<strong>' . esc_html(number_format_i18n($purchases)) . '</strong>' : '—',
+                $rev_parts ? esc_html(implode(' · ', $rev_parts)) : '—',
+                esc_html($cr_lead),
+                esc_html($cr_buy)
+            );
+        }
+        echo '</tbody></table></div>';
     }
 
     private function top_table($rows) {

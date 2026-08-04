@@ -150,17 +150,19 @@ class MDP_WooCommerce {
         if (mdp_is_excluded()) return;
         global $product;
         if (!$product instanceof WC_Product) return;
-        $id = MDP_Pixel::event_id('vc');
         ?>
         <script>
+        // event_id в браузере: страницы товаров кэшируются, «запечённый» PHP-id
+        // раздавался бы всем посетителям и Meta склеила бы их в одно событие.
+        var mdpVcId = window.mdpEventId ? mdpEventId('vc') : 'vc.' + Date.now() + '.' + Math.random().toString(16).slice(2);
         if (window.fbq) fbq('track', 'ViewContent', Object.assign({
             content_ids: ['<?php echo esc_js($product->get_id()); ?>'],
             content_name: <?php echo wp_json_encode($product->get_name()); ?>,
             content_type: 'product',
             value: <?php echo floatval($product->get_price()); ?>,
             currency: '<?php echo esc_js(get_woocommerce_currency()); ?>'
-        }, <?php echo $this->attr_js(); ?>), {eventID: '<?php echo esc_js($id); ?>'});
-        if (window.mdpTrack) mdpTrack('ViewContent', <?php echo floatval($product->get_price()); ?>, '<?php echo esc_js(get_woocommerce_currency()); ?>', '<?php echo esc_js($id); ?>');
+        }, <?php echo $this->attr_js(); ?>), {eventID: mdpVcId});
+        if (window.mdpTrack) mdpTrack('ViewContent', <?php echo floatval($product->get_price()); ?>, '<?php echo esc_js(get_woocommerce_currency()); ?>', mdpVcId);
         </script>
         <?php
     }
@@ -231,16 +233,16 @@ class MDP_WooCommerce {
     public function initiate_checkout() {
         if (mdp_is_excluded()) return;
         if (!function_exists('WC') || !WC()->cart) return;
-        $id = MDP_Pixel::event_id('ic');
         $total = WC()->cart->get_total('edit');
         ?>
         <script>
+        var mdpIcId = window.mdpEventId ? mdpEventId('ic') : 'ic.' + Date.now() + '.' + Math.random().toString(16).slice(2);
         if (window.fbq) fbq('track', 'InitiateCheckout', Object.assign({
             value: <?php echo floatval($total); ?>,
             currency: '<?php echo esc_js(get_woocommerce_currency()); ?>',
             num_items: <?php echo intval(WC()->cart->get_cart_contents_count()); ?>
-        }, <?php echo $this->attr_js(); ?>), {eventID: '<?php echo esc_js($id); ?>'});
-        if (window.mdpTrack) mdpTrack('InitiateCheckout', <?php echo floatval($total); ?>, '<?php echo esc_js(get_woocommerce_currency()); ?>', '<?php echo esc_js($id); ?>');
+        }, <?php echo $this->attr_js(); ?>), {eventID: mdpIcId});
+        if (window.mdpTrack) mdpTrack('InitiateCheckout', <?php echo floatval($total); ?>, '<?php echo esc_js(get_woocommerce_currency()); ?>', mdpIcId);
         </script>
         <?php
     }

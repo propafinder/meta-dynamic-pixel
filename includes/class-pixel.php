@@ -88,8 +88,8 @@ class MDP_Pixel {
         $am = $this->advanced_matching();
         $am_json = $am ? wp_json_encode($am) : '';
 
-        // Определяем, не страница ли это "Спасибо" (не WooCommerce)
-        $purchase = $this->maybe_thankyou_purchase();
+        // Определяем, не страница ли это "Спасибо" (лид, не WooCommerce)
+        $lead = $this->maybe_thankyou_lead();
         ?>
         <!-- Meta Dynamic Pixel -->
         <script>
@@ -106,24 +106,32 @@ class MDP_Pixel {
         fbq('init', '<?php echo esc_js($pixel_id); ?>'<?php echo $am_json ? ', ' . $am_json : ''; ?>);
 
         <?php if (mdp_get('track_pageview')) :
-            $pv_id = self::event_id('pv');
-            if (mdp_get('capi_pageview')) {
+            // event_id генерируем в браузере: под страничным кэшем PHP не выполняется,
+            // и «запечённый» в HTML id раздавался бы всем посетителям — Meta склеила бы
+            // их в одно событие. Исключение — включённый серверный PageView: там id
+            // обязан совпасть с тем, что ушло с сервера (такие страницы кэшировать нельзя).
+            $capi_pv = mdp_get('capi_pageview');
+            if ($capi_pv) {
+                $pv_id = self::event_id('pv');
                 $this->capi->send('PageView', $pv_id, MDP_Attribution::attribution_payload(), MDP_Attribution::user_identity());
             }
         ?>
-        fbq('track', 'PageView', window.mdpAttr, {eventID: '<?php echo esc_js($pv_id); ?>'});
-        if (window.mdpTrack) mdpTrack('PageView', 0, '', '<?php echo esc_js($pv_id); ?>');
+        var mdpPvId = <?php echo $capi_pv
+            ? "'" . esc_js($pv_id) . "'"
+            : "(window.mdpEventId ? mdpEventId('pv') : 'pv.' + Date.now() + '.' + Math.random().toString(16).slice(2))"; ?>;
+        fbq('track', 'PageView', window.mdpAttr, {eventID: mdpPvId});
+        if (window.mdpTrack) mdpTrack('PageView', 0, '', mdpPvId);
         <?php endif; ?>
 
-        <?php if ($purchase) : ?>
-        fbq('track', 'Purchase',
+        <?php if ($lead) : ?>
+        fbq('track', 'Lead',
             Object.assign({
-                value: <?php echo floatval($purchase['value']); ?>,
-                currency: '<?php echo esc_js($purchase['currency']); ?>'
+                value: <?php echo floatval($lead['value']); ?>,
+                currency: '<?php echo esc_js($lead['currency']); ?>'
             }, window.mdpAttr),
-            {eventID: '<?php echo esc_js($purchase['event_id']); ?>'}
+            {eventID: '<?php echo esc_js($lead['event_id']); ?>'}
         );
-        if (window.mdpTrack) mdpTrack('Purchase', <?php echo floatval($purchase['value']); ?>, '<?php echo esc_js($purchase['currency']); ?>', '<?php echo esc_js($purchase['event_id']); ?>');
+        if (window.mdpTrack) mdpTrack('Lead', <?php echo floatval($lead['value']); ?>, '<?php echo esc_js($lead['currency']); ?>', '<?php echo esc_js($lead['event_id']); ?>');
         <?php endif; ?>
         </script>
         <noscript><img height="1" width="1" style="display:none"
@@ -133,11 +141,12 @@ class MDP_Pixel {
     }
 
     /**
-     * Если текущая страница помечена как "Спасибо" (без WooCommerce) и Purchase включён —
-     * подготовить данные покупки и отправить серверное событие.
+     * Если текущая страница помечена как "Спасибо" (без WooCommerce) — это ЛИД:
+     * подготовить данные и отправить серверное событие Lead.
+     * Покупка (Purchase) — только реально оплаченный заказ WooCommerce.
      */
-    private function maybe_thankyou_purchase() {
-        if (!mdp_get('track_purchase')) {
+    private function maybe_thankyou_lead() {
+        if (!mdp_get('track_lead')) {
             return null;
         }
         // WooCommerce обрабатывается отдельно
@@ -162,14 +171,14 @@ class MDP_Pixel {
         // если его ещё нет (JS не успел поставить cookie) — к дню как запасной вариант.
         $xid   = mdp_external_id();
         $token = $xid !== '' ? substr(md5($xid), 0, 16) : gmdate('Ymd');
-        $event_id = 'purchase-page-' . $page_id . '.' . $token;
+        $event_id = 'lead-page-' . $page_id . '.' . $token;
 
         // Серверное дублирование — строго один раз на (посетитель|день)+страницу,
-        // чтобы рефреш «Спасибо» не плодил серверные Purchase.
+        // чтобы рефреш «Спасибо» не плодил серверные Lead.
         $guard = 'mdp_pp_' . md5($event_id);
         if (false === get_transient($guard)) {
             $custom = array_merge(array('value' => $value, 'currency' => $currency), MDP_Attribution::attribution_payload());
-            $this->capi->send('Purchase', $event_id, $custom, MDP_Attribution::user_identity());
+            $this->capi->send('Lead', $event_id, $custom, MDP_Attribution::user_identity());
             set_transient($guard, 1, DAY_IN_SECONDS);
         }
 

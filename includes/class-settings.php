@@ -62,7 +62,7 @@ class MDP_Settings {
         $checkboxes = array(
             'enable_capi', 'enable_advanced_matching', 'track_pageview',
             'track_viewcontent', 'track_addtocart', 'track_initiatecheckout',
-            'track_purchase', 'capi_pageview', 'enable_logging', 'exclude_admins',
+            'track_purchase', 'track_lead', 'capi_pageview', 'enable_logging', 'exclude_admins',
         );
         foreach ($checkboxes as $cb) {
             $out[$cb] = empty($input[$cb]) ? 0 : 1;
@@ -150,19 +150,21 @@ class MDP_Settings {
                             <?php $this->cb($s, 'track_viewcontent', 'ViewContent (просмотр товара)'); ?>
                             <?php $this->cb($s, 'track_addtocart', 'AddToCart (добавление в корзину)'); ?>
                             <?php $this->cb($s, 'track_initiatecheckout', 'InitiateCheckout (начало оформления)'); ?>
-                            <?php $this->cb($s, 'track_purchase', 'Purchase (покупка — на странице "Спасибо")'); ?>
+                            <?php $this->cb($s, 'track_purchase', 'Purchase (покупка — оплаченный заказ WooCommerce)'); ?>
+                            <?php $this->cb($s, 'track_lead', 'Lead (заявка — страница "Спасибо" ниже)'); ?>
                         </td>
                     </tr>
                 </table>
 
-                <h2 class="title">Страница "Спасибо" без WooCommerce</h2>
+                <h2 class="title">Лиды — страницы "Спасибо" (без WooCommerce)</h2>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><label>ID страниц</label></th>
                         <td>
                             <input type="text" class="regular-text" name="<?php echo $name; ?>[thankyou_page_ids]"
                                    value="<?php echo esc_attr($s['thankyou_page_ids']); ?>" placeholder="напр. 42, 108">
-                            <p class="description">ID страниц благодарности (через запятую). На них сработает Purchase. Для WooCommerce настраивать не нужно — событие ставится автоматически.</p>
+                            <p class="description">ID страниц благодарности (через запятую). На них сработает событие <strong>Lead</strong> (заявка), а не покупка. Покупка (Purchase) считается только по оплаченному заказу WooCommerce.<br>
+                            <strong>Важно:</strong> эти страницы нужно исключить из кэша (Seraphinite/CDN), иначе событие уйдёт не для того посетителя.</p>
                         </td>
                     </tr>
                     <tr>
