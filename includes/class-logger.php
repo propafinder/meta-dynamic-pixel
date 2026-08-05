@@ -306,6 +306,74 @@ class MDP_Logger {
         return $rows;
     }
 
+    /**
+     * Журнал событий с постраничной навигацией и фильтрами.
+     * $args: event_name, day (Y-m-d, локальная дата), per_page, page.
+     * Возвращает array('rows' => [...], 'total' => int, 'pages' => int, 'page' => int).
+     */
+    public static function events($args = array()) {
+        global $wpdb;
+        $t = self::table();
+
+        $a = array_merge(array(
+            'event_name' => '',
+            'day'        => '',
+            'per_page'   => 50,
+            'page'       => 1,
+        ), $args);
+
+        $per  = max(10, min(200, (int) $a['per_page']));
+        $page = max(1, (int) $a['page']);
+
+        $where = array('1=1');
+        $vals  = array();
+
+        if ($a['event_name'] !== '') {
+            $where[] = 'event_name = %s';
+            $vals[]  = $a['event_name'];
+        }
+        // День выбирается в часовом поясе сайта, а хранится всё в UTC — переводим границы.
+        if ($a['day'] !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $a['day'])) {
+            $where[] = 'created_at BETWEEN %s AND %s';
+            $vals[]  = get_gmt_from_date($a['day'] . ' 00:00:00');
+            $vals[]  = get_gmt_from_date($a['day'] . ' 23:59:59');
+        }
+        $sql_where = implode(' AND ', $where);
+
+        $total = (int) $wpdb->get_var(
+            $vals
+                ? $wpdb->prepare("SELECT COUNT(*) FROM $t WHERE $sql_where", $vals)
+                : "SELECT COUNT(*) FROM $t WHERE $sql_where"
+        );
+
+        $pages  = max(1, (int) ceil($total / $per));
+        $page   = min($page, $pages);
+        $offset = ($page - 1) * $per;
+
+        $cols = "event_name, event_id, channel, value, currency, origin, utm_source, utm_campaign, url, status, created_at";
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT $cols FROM $t WHERE $sql_where ORDER BY id DESC LIMIT %d OFFSET %d",
+            array_merge($vals, array($per, $offset))
+        ));
+
+        return array(
+            'rows'  => $rows,
+            'total' => $total,
+            'pages' => $pages,
+            'page'  => $page,
+        );
+    }
+
+    /** Дни, за которые есть данные (для навигации по датам). */
+    public static function available_days($limit = 90) {
+        global $wpdb;
+        $t = self::table();
+        return $wpdb->get_col($wpdb->prepare(
+            "SELECT DATE(created_at) d FROM $t GROUP BY DATE(created_at) ORDER BY d DESC LIMIT %d",
+            $limit
+        ));
+    }
+
     /** Последние события, при желании — только одного типа. */
     public static function recent($limit = 25, $event_name = '') {
         global $wpdb;

@@ -98,7 +98,18 @@ class MDP_Dashboard {
         if (!in_array($ev_filter, $ev_types, true)) {
             $ev_filter = '';
         }
-        $recent = MDP_Logger::recent($ev_filter ? 100 : 25, $ev_filter);
+        $day  = isset($_GET['day']) ? sanitize_text_field(wp_unslash($_GET['day'])) : '';
+        if ($day !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) {
+            $day = '';
+        }
+        $page_n = isset($_GET['p']) ? max(1, intval($_GET['p'])) : 1;
+        $log = MDP_Logger::events(array(
+            'event_name' => $ev_filter,
+            'day'        => $day,
+            'per_page'   => 50,
+            'page'       => $page_n,
+        ));
+        $recent = $log['rows'];
 
         $logging_on = mdp_get('enable_logging');
         $base = admin_url('admin.php?page=meta-dynamic-pixel');
@@ -209,19 +220,54 @@ class MDP_Dashboard {
 
             <!-- Последние события -->
             <div class="mdp-box">
-                <h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    Последние события
+                <?php
+                // Ссылка журнала с сохранением всех фильтров (кроме переопределённых).
+                $log_url = function ($over = array()) use ($base, $days, $src_col, $ev_filter, $day) {
+                    return esc_url(add_query_arg(array_merge(array(
+                        'range' => $days, 'src' => $src_col, 'ev' => $ev_filter, 'day' => $day, 'p' => 1,
+                    ), $over), $base) . '#log');
+                };
+                $all_days = MDP_Logger::available_days();
+                ?>
+                <h2 id="log" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    Журнал событий
+                    <span style="font-weight:400;color:#646970;font-size:12px">
+                        всего: <?php echo esc_html(number_format_i18n($log['total'])); ?>
+                    </span>
+                </h2>
+
+                <p style="margin:0 0 10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <span style="color:#646970;font-size:12px">Событие:</span>
                     <?php
                     $ev_labels = array('' => 'Все') + array_combine($ev_types, $ev_types);
                     foreach ($ev_labels as $ev => $lbl) {
                         $cls = ($ev === $ev_filter) ? 'button button-small button-primary' : 'button button-small';
-                        printf('<a class="%s" href="%s">%s</a> ',
-                            esc_attr($cls),
-                            esc_url(add_query_arg(array('range' => $days, 'src' => $src_col, 'ev' => $ev), $base)),
-                            esc_html($lbl));
+                        printf('<a class="%s" href="%s">%s</a>', esc_attr($cls), $log_url(array('ev' => $ev)), esc_html($lbl));
                     }
                     ?>
-                </h2>
+                </p>
+
+                <p style="margin:0 0 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <span style="color:#646970;font-size:12px">День:</span>
+                    <a class="<?php echo $day === '' ? 'button button-small button-primary' : 'button button-small'; ?>"
+                       href="<?php echo $log_url(array('day' => '')); ?>">Все дни</a>
+                    <?php foreach (array_slice((array) $all_days, 0, 14) as $d) :
+                        $cls = ($d === $day) ? 'button button-small button-primary' : 'button button-small'; ?>
+                        <a class="<?php echo esc_attr($cls); ?>" href="<?php echo $log_url(array('day' => $d)); ?>">
+                            <?php echo esc_html(date_i18n('d.m', strtotime($d))); ?>
+                        </a>
+                    <?php endforeach; ?>
+                    <?php if (count((array) $all_days) > 14) : ?>
+                        <select onchange="if(this.value)location.href=this.value" style="height:26px;font-size:12px">
+                            <option value="">— другой день —</option>
+                            <?php foreach ((array) $all_days as $d) : ?>
+                                <option value="<?php echo $log_url(array('day' => $d)); ?>" <?php selected($d, $day); ?>>
+                                    <?php echo esc_html(date_i18n('d.m.Y', strtotime($d))); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php endif; ?>
+                </p>
                 <table class="widefat striped">
                     <thead><tr>
                         <th>Время</th><th>Событие</th><th>Канал</th><th>Сумма</th>
@@ -232,7 +278,7 @@ class MDP_Dashboard {
                         <tr><td colspan="8">Пока нет данных. Откройте сайт как обычный посетитель — события появятся здесь.</td></tr>
                     <?php else : foreach ($recent as $r) : ?>
                         <tr>
-                            <td><?php echo esc_html(get_date_from_gmt($r->created_at, 'd.m H:i')); ?></td>
+                            <td style="white-space:nowrap"><?php echo esc_html(get_date_from_gmt($r->created_at, 'd.m.Y H:i:s')); ?></td>
                             <td><strong><?php echo esc_html($r->event_name); ?></strong></td>
                             <td><?php echo $r->channel === 'server' ? '🖥 CAPI' : '🌐 Pixel'; ?></td>
                             <td><?php echo $r->value > 0 ? esc_html($this->money($r->value, $r->currency)) : '—'; ?></td>
@@ -244,6 +290,35 @@ class MDP_Dashboard {
                     <?php endforeach; endif; ?>
                     </tbody>
                 </table>
+
+                <?php if ($log['pages'] > 1) :
+                    $cur = $log['page'];
+                    $pg  = function ($n) use ($log_url) { return $log_url(array('p' => $n)); };
+                ?>
+                <div style="margin-top:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <?php if ($cur > 1) : ?>
+                        <a class="button button-small" href="<?php echo $pg(1); ?>">« В начало</a>
+                        <a class="button button-small" href="<?php echo $pg($cur - 1); ?>">‹ Назад</a>
+                    <?php endif; ?>
+
+                    <span style="font-size:13px;color:#646970">
+                        Страница <strong><?php echo intval($cur); ?></strong> из <?php echo intval($log['pages']); ?>
+                    </span>
+
+                    <?php if ($cur < $log['pages']) : ?>
+                        <a class="button button-small" href="<?php echo $pg($cur + 1); ?>">Вперёд ›</a>
+                        <a class="button button-small" href="<?php echo $pg($log['pages']); ?>">В конец »</a>
+                    <?php endif; ?>
+
+                    <select onchange="if(this.value)location.href=this.value" style="height:26px;font-size:12px;margin-left:8px">
+                        <?php for ($i = 1; $i <= $log['pages']; $i++) : ?>
+                            <option value="<?php echo $pg($i); ?>" <?php selected($i, $cur); ?>>
+                                стр. <?php echo intval($i); ?>
+                            </option>
+                        <?php endfor; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
             </div>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
