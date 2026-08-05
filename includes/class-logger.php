@@ -316,6 +316,30 @@ class MDP_Logger {
         ));
     }
 
+    /**
+     * Сколько старых записей помечено как Purchase, хотя это заявка со страницы
+     * «Спасибо» (до версии 1.2.0 такие заходы писались покупками).
+     * Отличаем по event_id: реальный заказ Woo — 'purchase.ORDER_ID'.
+     */
+    public static function legacy_lead_count() {
+        global $wpdb;
+        $t = self::table();
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM $t
+             WHERE event_name = 'Purchase' AND event_id NOT LIKE 'purchase.%'"
+        );
+    }
+
+    /** Переклассифицировать такие записи в Lead. Возвращает число строк. */
+    public static function fix_legacy_leads() {
+        global $wpdb;
+        $t = self::table();
+        return (int) $wpdb->query(
+            "UPDATE $t SET event_name = 'Lead'
+             WHERE event_name = 'Purchase' AND event_id NOT LIKE 'purchase.%'"
+        );
+    }
+
     /** Полная очистка таблицы. */
     public static function truncate() {
         global $wpdb;

@@ -5,7 +5,7 @@ Tags: facebook, meta, pixel, conversions api, utm, woocommerce
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.2
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 License: GPLv2 or later
 
 Динамический пиксель Meta (Facebook/Instagram) с UTM-атрибуцией, реферером,
@@ -43,6 +43,13 @@ origin лида, отслеживанием покупки на странице
 * Серверные события — Events Manager → Test Events (введите Test Event Code в настройках).
 
 == Журнал изменений ==
+
+= 1.2.2 =
+* Исправление старых данных: версии до 1.2.0 записывали заход на страницу «Спасибо»
+  как Purchase, поэтому «Покупок» и «Выручка» показывали заявки вместе с реальными
+  заказами. На странице «Аналитика» появилось предупреждение с кнопкой, которая
+  переклассифицирует такие записи в Lead. Реальные заказы WooCommerce не затрагиваются —
+  они отличаются по event_id (purchase.ORDER_ID).
 
 = 1.2.1 =
 * Conversions API больше не требует отдельной галки: серверная отправка включается

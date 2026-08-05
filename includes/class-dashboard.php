@@ -10,6 +10,7 @@ class MDP_Dashboard {
     public function __construct() {
         add_action('admin_menu', array($this, 'menu'), 9);
         add_action('admin_post_mdp_clear_data', array($this, 'clear_data'));
+        add_action('admin_post_mdp_fix_legacy', array($this, 'fix_legacy'));
     }
 
     public function menu() {
@@ -42,6 +43,19 @@ class MDP_Dashboard {
     }
 
     /** Символ валюты перед суммой (£/$/€/₽), иначе код после суммы. */
+    /** Переклассификация старых «покупок», которые на деле были заявками. */
+    public function fix_legacy() {
+        if (!current_user_can('manage_options') || !check_admin_referer('mdp_fix_legacy')) {
+            wp_die('forbidden');
+        }
+        $n = MDP_Logger::fix_legacy_leads();
+        wp_safe_redirect(add_query_arg(
+            array('page' => 'meta-dynamic-pixel', 'fixed' => $n),
+            admin_url('admin.php')
+        ));
+        exit;
+    }
+
     private function money($v, $cur = '') {
         $symbols = array('GBP' => '£', 'USD' => '$', 'EUR' => '€', 'RUB' => '₽', 'UAH' => '₴');
         $num = number_format_i18n((float) $v, 2);
@@ -107,6 +121,28 @@ class MDP_Dashboard {
             <?php endif; ?>
             <?php if (!empty($_GET['cleared'])) : ?>
                 <div class="notice notice-success is-dismissible"><p>Данные аналитики очищены.</p></div>
+            <?php endif; ?>
+            <?php if (isset($_GET['fixed'])) : ?>
+                <div class="notice notice-success is-dismissible"><p>Исправлено записей: <?php echo intval($_GET['fixed']); ?>. Теперь «Покупки» — только реальные оплаченные заказы WooCommerce.</p></div>
+            <?php endif; ?>
+
+            <?php
+            // До версии 1.2.0 заход на страницу «Спасибо» записывался как Purchase.
+            // Из-за этого «Покупок» показывало заявки вместе с реальными заказами.
+            $legacy = MDP_Logger::legacy_lead_count();
+            if ($legacy) :
+            ?>
+                <div class="notice notice-error">
+                    <p><strong>Найдено <?php echo intval($legacy); ?> записей, где заявка со страницы «Спасибо» посчитана покупкой.</strong><br>
+                    Так работали версии до 1.2.0 — из-за этого «Покупок» и «Выручка» завышены.
+                    Реальные заказы WooCommerce не пострадают: они отличаются по event_id.</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                          onsubmit="return confirm('Переклассифицировать <?php echo intval($legacy); ?> записей из Purchase в Lead?');" style="margin:8px 0 12px">
+                        <input type="hidden" name="action" value="mdp_fix_legacy">
+                        <?php wp_nonce_field('mdp_fix_legacy'); ?>
+                        <button type="submit" class="button button-primary">Исправить: пометить их как Лиды</button>
+                    </form>
+                </div>
             <?php endif; ?>
 
             <p class="mdp-ranges">
