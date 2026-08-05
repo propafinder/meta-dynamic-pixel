@@ -306,13 +306,20 @@ class MDP_Logger {
         return $rows;
     }
 
-    /** Последние события. */
-    public static function recent($limit = 25) {
+    /** Последние события, при желании — только одного типа. */
+    public static function recent($limit = 25, $event_name = '') {
         global $wpdb;
         $t = self::table();
+        $cols = "event_name, event_id, channel, value, currency, origin, utm_source, status, created_at";
+
+        if ($event_name !== '') {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT $cols FROM $t WHERE event_name = %s ORDER BY id DESC LIMIT %d",
+                $event_name, $limit
+            ));
+        }
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT event_name, channel, value, currency, origin, utm_source, status, created_at
-             FROM $t ORDER BY id DESC LIMIT %d", $limit
+            "SELECT $cols FROM $t ORDER BY id DESC LIMIT %d", $limit
         ));
     }
 

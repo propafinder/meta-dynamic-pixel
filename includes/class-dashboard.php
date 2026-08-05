@@ -92,7 +92,13 @@ class MDP_Dashboard {
             $src_col = 'origin';
         }
         $by_source = MDP_Logger::by_source($src_col, $days);
-        $recent = MDP_Logger::recent(25);
+        // Фильтр ленты событий: найти покупку среди сотен PageView иначе нереально.
+        $ev_filter = isset($_GET['ev']) ? sanitize_text_field(wp_unslash($_GET['ev'])) : '';
+        $ev_types  = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Lead', 'Purchase');
+        if (!in_array($ev_filter, $ev_types, true)) {
+            $ev_filter = '';
+        }
+        $recent = MDP_Logger::recent($ev_filter ? 100 : 25, $ev_filter);
 
         $logging_on = mdp_get('enable_logging');
         $base = admin_url('admin.php?page=meta-dynamic-pixel');
@@ -203,15 +209,27 @@ class MDP_Dashboard {
 
             <!-- Последние события -->
             <div class="mdp-box">
-                <h2>Последние события</h2>
+                <h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    Последние события
+                    <?php
+                    $ev_labels = array('' => 'Все') + array_combine($ev_types, $ev_types);
+                    foreach ($ev_labels as $ev => $lbl) {
+                        $cls = ($ev === $ev_filter) ? 'button button-small button-primary' : 'button button-small';
+                        printf('<a class="%s" href="%s">%s</a> ',
+                            esc_attr($cls),
+                            esc_url(add_query_arg(array('range' => $days, 'src' => $src_col, 'ev' => $ev), $base)),
+                            esc_html($lbl));
+                    }
+                    ?>
+                </h2>
                 <table class="widefat striped">
                     <thead><tr>
                         <th>Время</th><th>Событие</th><th>Канал</th><th>Сумма</th>
-                        <th>Origin</th><th>UTM Source</th><th>Статус</th>
+                        <th>Origin</th><th>UTM Source</th><th>ID события</th><th>Статус</th>
                     </tr></thead>
                     <tbody>
                     <?php if (empty($recent)) : ?>
-                        <tr><td colspan="7">Пока нет данных. Откройте сайт как обычный посетитель — события появятся здесь.</td></tr>
+                        <tr><td colspan="8">Пока нет данных. Откройте сайт как обычный посетитель — события появятся здесь.</td></tr>
                     <?php else : foreach ($recent as $r) : ?>
                         <tr>
                             <td><?php echo esc_html(get_date_from_gmt($r->created_at, 'd.m H:i')); ?></td>
@@ -220,6 +238,7 @@ class MDP_Dashboard {
                             <td><?php echo $r->value > 0 ? esc_html($this->money($r->value, $r->currency)) : '—'; ?></td>
                             <td><?php echo esc_html($r->origin ?: '—'); ?></td>
                             <td><?php echo esc_html($r->utm_source ?: '—'); ?></td>
+                            <td><code style="font-size:11px"><?php echo esc_html($r->event_id ?: '—'); ?></code></td>
                             <td><?php echo esc_html($r->status); ?></td>
                         </tr>
                     <?php endforeach; endif; ?>
