@@ -141,6 +141,55 @@ class MDP_WooCommerce {
         $order->save();
     }
 
+    /**
+     * Сверка с реальными заказами магазина — источник истины при споре «сколько
+     * было покупок». В отличие от лога событий показывает ВСЕ заказы, включая
+     * неоплаченные (failed, cancelled, pending), с источником из снимка атрибуции.
+     */
+    public static function orders_report($limit = 300, $src_col = '', $src_val = '') {
+        if (!function_exists('wc_get_orders')) {
+            return array();
+        }
+        $orders = wc_get_orders(array(
+            'limit'   => $limit,
+            'orderby' => 'date',
+            'order'   => 'DESC',
+            'status'  => array_keys(wc_get_order_statuses()),
+        ));
+
+        $paid_statuses = apply_filters('mdp_purchase_statuses', array('processing', 'completed'), null);
+        $out = array();
+
+        foreach ((array) $orders as $o) {
+            if (!$o instanceof WC_Order) {
+                continue;
+            }
+            $attr = json_decode((string) $o->get_meta('_mdp_attr'), true);
+            $attr = is_array($attr) ? $attr : array();
+
+            $row = array(
+                'id'           => $o->get_id(),
+                'date'         => $o->get_date_created() ? $o->get_date_created()->date('Y-m-d H:i') : '',
+                'status'       => $o->get_status(),
+                'paid'         => in_array($o->get_status(), $paid_statuses, true),
+                'total'        => (float) $o->get_total(),
+                'currency'     => $o->get_currency(),
+                'origin'       => isset($attr['lead_origin']) ? $attr['lead_origin'] : '',
+                'utm_source'   => isset($attr['utm_source']) ? $attr['utm_source'] : '',
+                'utm_campaign' => isset($attr['utm_campaign']) ? $attr['utm_campaign'] : '',
+                'capi_sent'    => (bool) $o->get_meta('_mdp_capi_sent'),
+                // Ссылка от самого заказа: при HPOS заказы не записи, и post.php не подходит.
+                'edit_url'     => method_exists($o, 'get_edit_order_url') ? $o->get_edit_order_url() : '',
+            );
+
+            if ($src_val !== '' && isset($row[$src_col]) && $row[$src_col] !== $src_val) {
+                continue;
+            }
+            $out[] = (object) $row;
+        }
+        return $out;
+    }
+
     private function attr_js() {
         return wp_json_encode(MDP_Attribution::attribution_payload() ?: new stdClass());
     }

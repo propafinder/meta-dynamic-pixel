@@ -318,6 +318,8 @@ class MDP_Logger {
         $a = array_merge(array(
             'event_name' => '',
             'day'        => '',
+            'src_col'    => '',   // origin | utm_source | utm_campaign
+            'src_val'    => '',
             'per_page'   => 50,
             'page'       => 1,
         ), $args);
@@ -331,6 +333,11 @@ class MDP_Logger {
         if ($a['event_name'] !== '') {
             $where[] = 'event_name = %s';
             $vals[]  = $a['event_name'];
+        }
+        // Фильтр по источнику/метке: колонка из белого списка, значение — параметром.
+        if ($a['src_val'] !== '' && in_array($a['src_col'], array('origin', 'utm_source', 'utm_campaign'), true)) {
+            $where[] = $a['src_col'] . ' = %s';
+            $vals[]  = $a['src_val'];
         }
         // День выбирается в часовом поясе сайта, а хранится всё в UTC — переводим границы.
         if ($a['day'] !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $a['day'])) {

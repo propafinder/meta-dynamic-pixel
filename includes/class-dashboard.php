@@ -102,14 +102,22 @@ class MDP_Dashboard {
         if ($day !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) {
             $day = '';
         }
-        $page_n = isset($_GET['p']) ? max(1, intval($_GET['p'])) : 1;
+        $page_n  = isset($_GET['p']) ? max(1, intval($_GET['p'])) : 1;
+        $src_val = isset($_GET['sv']) ? sanitize_text_field(wp_unslash($_GET['sv'])) : '';
         $log = MDP_Logger::events(array(
             'event_name' => $ev_filter,
             'day'        => $day,
+            'src_col'    => $src_col,
+            'src_val'    => $src_val,
             'per_page'   => 50,
             'page'       => $page_n,
         ));
         $recent = $log['rows'];
+
+        // Реальные заказы магазина — источник истины при сверке с трафик-менеджером.
+        $orders = class_exists('MDP_WooCommerce')
+            ? MDP_WooCommerce::orders_report(300, $src_col, $src_val)
+            : array();
 
         $logging_on = mdp_get('enable_logging');
         $base = admin_url('admin.php?page=meta-dynamic-pixel');
@@ -215,16 +223,42 @@ class MDP_Dashboard {
                     }
                     ?>
                 </h2>
-                <?php $this->source_table($by_source); ?>
+                <?php
+                $src_link = function ($label) use ($base, $days, $src_col) {
+                    return esc_url(add_query_arg(array(
+                        'range' => $days, 'src' => $src_col, 'sv' => $label, 'p' => 1,
+                    ), $base) . '#log');
+                };
+                $this->source_table($by_source, $src_link, $src_val);
+                ?>
+                <p class="description" style="margin:8px 0 0">Нажмите на источник, чтобы посмотреть его события и заказы.</p>
             </div>
+
+            <?php if ($src_val !== '') : ?>
+                <div class="notice notice-info" style="margin:0 0 16px">
+                    <p>Фильтр по источнику: <strong><?php echo esc_html($src_val); ?></strong>
+                    (<?php echo esc_html($cols[$src_col] ?? $src_col); ?>) —
+                    журнал и заказы ниже показаны только для него.
+                    <a href="<?php echo esc_url(add_query_arg(array('range' => $days, 'src' => $src_col), $base)); ?>">Сбросить</a></p>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($orders) || class_exists('MDP_WooCommerce')) : ?>
+            <!-- Сверка с реальными заказами магазина -->
+            <div class="mdp-box">
+                <h2>Заказы WooCommerce <span style="font-weight:400;color:#646970;font-size:12px">— реальные заказы магазина, включая неоплаченные</span></h2>
+                <?php $this->orders_table($orders); ?>
+            </div>
+            <?php endif; ?>
 
             <!-- Последние события -->
             <div class="mdp-box">
                 <?php
                 // Ссылка журнала с сохранением всех фильтров (кроме переопределённых).
-                $log_url = function ($over = array()) use ($base, $days, $src_col, $ev_filter, $day) {
+                $log_url = function ($over = array()) use ($base, $days, $src_col, $ev_filter, $day, $src_val) {
                     return esc_url(add_query_arg(array_merge(array(
-                        'range' => $days, 'src' => $src_col, 'ev' => $ev_filter, 'day' => $day, 'p' => 1,
+                        'range' => $days, 'src' => $src_col, 'ev' => $ev_filter,
+                        'day' => $day, 'sv' => $src_val, 'p' => 1,
                     ), $over), $base) . '#log');
                 };
                 $all_days = MDP_Logger::available_days();
@@ -390,8 +424,73 @@ class MDP_Dashboard {
         echo '</div>';
     }
 
+    /**
+     * Реальные заказы магазина: оплаченные и нет, с источником. Именно эта таблица
+     * отвечает на вопрос «сколько на самом деле было покупок с такой-то метки».
+     */
+    private function orders_table($orders) {
+        if (empty($orders)) {
+            echo '<p style="color:#646970;font-size:13px">Заказов не найдено. Если фильтр по источнику активен — у этого источника заказов нет.</p>';
+            return;
+        }
+
+        // Сводка: сколько оплачено, сколько нет, на какую сумму.
+        $paid = $unpaid = 0;
+        $revenue = array();
+        foreach ($orders as $o) {
+            if ($o->paid) {
+                $paid++;
+                $cur = $o->currency ?: '';
+                $revenue[$cur] = ($revenue[$cur] ?? 0) + $o->total;
+            } else {
+                $unpaid++;
+            }
+        }
+        $rev_str = array();
+        foreach ($revenue as $cur => $sum) {
+            $rev_str[] = $this->money($sum, $cur);
+        }
+
+        printf(
+            '<p style="margin:0 0 12px;font-size:14px">
+                Всего заказов: <strong>%d</strong> &nbsp;·&nbsp;
+                <span style="color:#1a7f37">оплачено: <strong>%d</strong></span> &nbsp;·&nbsp;
+                <span style="color:#b32d2e">не оплачено: <strong>%d</strong></span> &nbsp;·&nbsp;
+                выручка: <strong>%s</strong>
+            </p>',
+            count($orders), $paid, $unpaid, esc_html($rev_str ? implode(' · ', $rev_str) : '—')
+        );
+
+        $labels = function_exists('wc_get_order_statuses') ? wc_get_order_statuses() : array();
+
+        echo '<div style="overflow-x:auto;max-height:520px"><table class="widefat striped"><thead><tr>'
+            . '<th>Заказ</th><th>Дата</th><th>Статус</th><th>Сумма</th>'
+            . '<th>Источник</th><th>UTM Source</th><th>UTM Campaign</th><th>CAPI</th>'
+            . '</tr></thead><tbody>';
+
+        foreach ($orders as $o) {
+            $status_label = $labels['wc-' . $o->status] ?? $o->status;
+            printf(
+                '<tr><td><a href="%s">#%d</a></td><td style="white-space:nowrap">%s</td>
+                 <td><span style="color:%s;font-weight:600">%s</span></td><td>%s</td>
+                 <td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                esc_url($o->edit_url ?: admin_url('admin.php?page=wc-orders&action=edit&id=' . $o->id)),
+                $o->id,
+                esc_html($o->date),
+                $o->paid ? '#1a7f37' : '#b32d2e',
+                esc_html($status_label),
+                esc_html($this->money($o->total, $o->currency)),
+                esc_html($o->origin ?: '—'),
+                esc_html($o->utm_source ?: '—'),
+                esc_html($o->utm_campaign ?: '—'),
+                $o->capi_sent ? '✅' : '—'
+            );
+        }
+        echo '</tbody></table></div>';
+    }
+
     /** Таблица «источник → визиты → лиды → покупки → выручка». */
-    private function source_table($rows) {
+    private function source_table($rows, $link = null, $active = '') {
         if (empty($rows)) {
             echo '<p style="color:#646970;font-size:13px">Нет данных за период.</p>';
             return;
@@ -412,9 +511,14 @@ class MDP_Dashboard {
             $cr_lead = $visits ? round($leads / $visits * 100, 1) . '%' : '—';
             $cr_buy  = $leads ? round($purchases / $leads * 100, 1) . '%' : '—';
 
+            // Клик по источнику фильтрует журнал и список заказов по нему.
+            $label = $link
+                ? sprintf('<a href="%s">%s</a>', $link($r->label), esc_html($r->label))
+                : esc_html($r->label);
             printf(
-                '<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
-                esc_html($r->label),
+                '<tr%s><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                ($active !== '' && $r->label === $active) ? ' style="background:#fff6e5"' : '',
+                $label,
                 esc_html(number_format_i18n($visits)),
                 $leads ? esc_html(number_format_i18n($leads)) : '—',
                 $purchases ? '<strong>' . esc_html(number_format_i18n($purchases)) . '</strong>' : '—',
