@@ -151,6 +151,12 @@ class MDP_CAPI {
             'value'      => isset($custom_data['value']) ? $custom_data['value'] : 0,
             'currency'   => isset($custom_data['currency']) ? $custom_data['currency'] : '',
             'url'        => $this->current_url(),
+            // Атрибуция из custom_data (снимок, снятый при оформлении), а не из cookie:
+            // вебхук платёжки приходит без cookie покупателя.
+            'origin'       => isset($custom_data['lead_origin'])  ? $custom_data['lead_origin']  : null,
+            'utm_source'   => isset($custom_data['utm_source'])   ? $custom_data['utm_source']   : null,
+            'utm_medium'   => isset($custom_data['utm_medium'])   ? $custom_data['utm_medium']   : null,
+            'utm_campaign' => isset($custom_data['utm_campaign']) ? $custom_data['utm_campaign'] : null,
             'match_keys' => implode(',', $match),
             // Отправка неблокирующая ('blocking' => false): мы знаем только, что
             // запрос поставлен в очередь, а не что Meta его приняла. Поэтому 'queued',

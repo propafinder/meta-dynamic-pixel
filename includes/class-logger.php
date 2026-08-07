@@ -72,10 +72,18 @@ class MDP_Logger {
         $a = array_merge(array(
             'event_id' => '', 'value' => 0, 'currency' => '',
             'match_keys' => '', 'status' => 'ok', 'url' => '',
+            // Явная атрибуция важнее cookie: серверное событие может уходить из
+            // вебхука платёжной системы, где cookie покупателя нет вовсе, и тогда
+            // покупка ошибочно записывалась как direct с пустым UTM.
+            'origin' => null, 'utm_source' => null, 'utm_medium' => null, 'utm_campaign' => null,
         ), $args);
 
         $utm  = MDP_Attribution::get_utm();
         $last = isset($utm['last']) && is_array($utm['last']) ? $utm['last'] : array();
+
+        $pick = function ($explicit, $fallback) {
+            return ($explicit !== null && $explicit !== '') ? $explicit : $fallback;
+        };
 
         $wpdb->insert($wpdb->prefix . 'mdp_events', array(
             'event_name'   => substr((string) $event_name, 0, 40),
@@ -83,10 +91,10 @@ class MDP_Logger {
             'channel'      => substr((string) $channel, 0, 10),
             'value'        => floatval($a['value']),
             'currency'     => substr((string) $a['currency'], 0, 8),
-            'origin'       => substr((string) MDP_Attribution::get_origin(), 0, 60),
-            'utm_source'   => substr((string) (isset($last['utm_source']) ? $last['utm_source'] : ''), 0, 120),
-            'utm_medium'   => substr((string) (isset($last['utm_medium']) ? $last['utm_medium'] : ''), 0, 120),
-            'utm_campaign' => substr((string) (isset($last['utm_campaign']) ? $last['utm_campaign'] : ''), 0, 150),
+            'origin'       => substr((string) $pick($a['origin'], MDP_Attribution::get_origin()), 0, 60),
+            'utm_source'   => substr((string) $pick($a['utm_source'], isset($last['utm_source']) ? $last['utm_source'] : ''), 0, 120),
+            'utm_medium'   => substr((string) $pick($a['utm_medium'], isset($last['utm_medium']) ? $last['utm_medium'] : ''), 0, 120),
+            'utm_campaign' => substr((string) $pick($a['utm_campaign'], isset($last['utm_campaign']) ? $last['utm_campaign'] : ''), 0, 150),
             'url'          => substr((string) $a['url'], 0, 255),
             'match_keys'   => substr((string) $a['match_keys'], 0, 120),
             'status'       => substr((string) $a['status'], 0, 20),
@@ -147,24 +155,41 @@ class MDP_Logger {
 
     /* ===================== Запросы для дашборда ===================== */
 
-    private static function since($days) {
-        return gmdate('Y-m-d H:i:s', time() - intval($days) * DAY_IN_SECONDS);
+    /**
+     * Границы периода в UTC по локальным датам Y-m-d (включительно).
+     * Всё в таблице хранится в UTC, а пользователь выбирает даты в своём поясе.
+     */
+    public static function bounds($from, $to) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $from)) {
+            $from = date_i18n('Y-m-d', current_time('timestamp') - 6 * DAY_IN_SECONDS);
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $to)) {
+            $to = date_i18n('Y-m-d', current_time('timestamp'));
+        }
+        if ($from > $to) {
+            list($from, $to) = array($to, $from);
+        }
+        return array(
+            'from'  => $from,
+            'to'    => $to,
+            'since' => get_gmt_from_date($from . ' 00:00:00'),
+            'until' => get_gmt_from_date($to . ' 23:59:59'),
+        );
     }
 
-    /** Сводка KPI за период. */
-    public static function totals($days) {
+    /** Сводка KPI за период (границы — UTC, включительно). */
+    public static function totals($since, $until) {
         global $wpdb;
         $t = self::table();
-        $since = self::since($days);
 
         $events = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE created_at >= %s", $since
+            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE created_at BETWEEN %s AND %s", $since, $until
         ));
         $purchases = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Purchase' AND created_at >= %s", $since
+            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Purchase' AND created_at BETWEEN %s AND %s", $since, $until
         ));
         $leads = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Lead' AND created_at >= %s", $since
+            "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name='Lead' AND created_at BETWEEN %s AND %s", $since, $until
         ));
 
         // Выручка и средний чек — РАЗДЕЛЬНО по валютам (покупки в £, лиды в $ и т.п.).
@@ -172,9 +197,9 @@ class MDP_Logger {
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT currency, COUNT(*) AS purchases, COALESCE(SUM(v),0) AS revenue FROM (
                 SELECT event_id, currency, MAX(value) AS v FROM $t
-                WHERE event_name='Purchase' AND created_at >= %s
+                WHERE event_name='Purchase' AND created_at BETWEEN %s AND %s
                 GROUP BY event_id, currency
-            ) x GROUP BY currency ORDER BY revenue DESC", $since
+            ) x GROUP BY currency ORDER BY revenue DESC", $since, $until
         ));
         $by_currency = array();
         foreach ((array) $rows as $r) {
@@ -189,10 +214,10 @@ class MDP_Logger {
         }
 
         $browser = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE channel='browser' AND created_at >= %s", $since
+            "SELECT COUNT(*) FROM $t WHERE channel='browser' AND created_at BETWEEN %s AND %s", $since, $until
         ));
         $server = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE channel='server' AND created_at >= %s", $since
+            "SELECT COUNT(*) FROM $t WHERE channel='server' AND created_at BETWEEN %s AND %s", $since, $until
         ));
 
         return array(
@@ -206,77 +231,61 @@ class MDP_Logger {
     }
 
     /** Воронка по ключевым событиям. */
-    public static function funnel($days) {
+    public static function funnel($since, $until) {
         global $wpdb;
         $t = self::table();
-        $since = self::since($days);
         $steps = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Lead', 'Purchase');
         $out = array();
         foreach ($steps as $s) {
             $out[$s] = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name=%s AND created_at >= %s",
-                $s, $since
+                "SELECT COUNT(DISTINCT event_id) FROM $t WHERE event_name=%s AND created_at BETWEEN %s AND %s",
+                $s, $since, $until
             ));
         }
         return $out;
     }
 
     /** События по дням (для графика). */
-    public static function by_day($days) {
+    public static function by_day($since, $until, $from = '', $to = '') {
         global $wpdb;
         $t = self::table();
-        $since = self::since($days);
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT DATE(created_at) d, COUNT(DISTINCT event_id) c
-             FROM $t WHERE created_at >= %s GROUP BY DATE(created_at)", $since
+             FROM $t WHERE created_at BETWEEN %s AND %s GROUP BY DATE(created_at)", $since, $until
         ), OBJECT_K);
 
+        // Непрерывный ряд дат, чтобы «пустые» дни рисовались нулями, а не пропадали.
         $series = array();
-        for ($i = intval($days) - 1; $i >= 0; $i--) {
-            $day = gmdate('Y-m-d', time() - $i * DAY_IN_SECONDS);
+        $start = strtotime($from ?: substr($since, 0, 10));
+        $end   = strtotime($to ?: substr($until, 0, 10));
+        for ($ts = $start; $ts <= $end; $ts += DAY_IN_SECONDS) {
+            $day = gmdate('Y-m-d', $ts);
             $series[$day] = isset($rows[$day]) ? (int) $rows[$day]->c : 0;
         }
         return $series;
-    }
-
-    /** Топ по столбцу (origin / utm_source / utm_campaign / event_name). */
-    public static function top($column, $days, $limit = 8) {
-        global $wpdb;
-        $allowed = array('origin', 'utm_source', 'utm_campaign', 'event_name');
-        if (!in_array($column, $allowed, true)) {
-            return array();
-        }
-        $t = self::table();
-        $since = self::since($days);
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT $column AS label, COUNT(DISTINCT event_id) AS c
-             FROM $t WHERE created_at >= %s AND $column <> ''
-             GROUP BY $column ORDER BY c DESC LIMIT %d", $since, $limit
-        ));
     }
 
     /**
      * Главный отчёт: по каждому источнику — визиты, лиды, покупки, выручка и
      * конверсия. Именно этот срез нужен, чтобы понимать, какой трафик окупается.
      */
-    public static function by_source($column, $days, $limit = 20) {
+    public static function by_source($column, $since, $until, $limit = 20) {
         global $wpdb;
         $allowed = array('origin', 'utm_source', 'utm_campaign');
         if (!in_array($column, $allowed, true)) {
             return array();
         }
         $t = self::table();
-        $since = self::since($days);
 
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT $column AS label,
                     COUNT(DISTINCT CASE WHEN event_name='PageView' THEN event_id END) AS visits,
                     COUNT(DISTINCT CASE WHEN event_name='Lead' THEN event_id END) AS leads,
                     COUNT(DISTINCT CASE WHEN event_name='Purchase' THEN event_id END) AS purchases
-             FROM $t WHERE created_at >= %s AND $column <> ''
+             FROM $t WHERE created_at BETWEEN %s AND %s AND $column <> ''
              GROUP BY $column
              ORDER BY purchases DESC, leads DESC, visits DESC
-             LIMIT %d", $since, $limit
+             LIMIT %d", $since, $until, $limit
         ), OBJECT_K);
 
         if (empty($rows)) {
@@ -291,9 +300,9 @@ class MDP_Logger {
             "SELECT label, currency, SUM(v) AS revenue FROM (
                 SELECT $column AS label, event_id, currency, MAX(value) AS v
                 FROM $t
-                WHERE event_name='Purchase' AND created_at >= %s AND $column <> ''
+                WHERE event_name='Purchase' AND created_at BETWEEN %s AND %s AND $column <> ''
                 GROUP BY $column, event_id, currency
-             ) x GROUP BY label, currency", $since
+             ) x GROUP BY label, currency", $since, $until
         ));
         foreach ((array) $rev as $r) {
             if (isset($rows[$r->label])) {

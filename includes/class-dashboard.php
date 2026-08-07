@@ -42,7 +42,6 @@ class MDP_Dashboard {
         exit;
     }
 
-    /** Символ валюты перед суммой (£/$/€/₽), иначе код после суммы. */
     /** Переклассификация старых «покупок», которые на деле были заявками. */
     public function fix_legacy() {
         if (!current_user_can('manage_options') || !check_admin_referer('mdp_fix_legacy')) {
@@ -56,6 +55,7 @@ class MDP_Dashboard {
         exit;
     }
 
+    /** Символ валюты перед суммой (£/$/€/₽), иначе код после суммы. */
     private function money($v, $cur = '') {
         $symbols = array('GBP' => '£', 'USD' => '$', 'EUR' => '€', 'RUB' => '₽', 'UAH' => '₴');
         $num = number_format_i18n((float) $v, 2);
@@ -80,18 +80,28 @@ class MDP_Dashboard {
     public function render() {
         if (!current_user_can('manage_options')) return;
 
-        $days  = isset($_GET['range']) ? max(1, intval($_GET['range'])) : 7;
-        $allowed_ranges = array(1, 7, 30, 90);
-        if (!in_array($days, $allowed_ranges, true)) $days = 7;
+        // Период: произвольные даты «с — по». Пресеты просто подставляют их.
+        $today = date_i18n('Y-m-d', current_time('timestamp'));
+        $from  = isset($_GET['from']) ? sanitize_text_field(wp_unslash($_GET['from'])) : '';
+        $to    = isset($_GET['to'])   ? sanitize_text_field(wp_unslash($_GET['to']))   : '';
+        if ($from === '' && $to === '') {
+            $from = date_i18n('Y-m-d', current_time('timestamp') - 6 * DAY_IN_SECONDS);
+            $to   = $today;
+        }
+        $rg    = MDP_Logger::bounds($from, $to);
+        $from  = $rg['from'];
+        $to    = $rg['to'];
+        $since = $rg['since'];
+        $until = $rg['until'];
 
-        $totals = MDP_Logger::totals($days);
-        $funnel = MDP_Logger::funnel($days);
-        $byday  = MDP_Logger::by_day($days);
+        $totals = MDP_Logger::totals($since, $until);
+        $funnel = MDP_Logger::funnel($since, $until);
+        $byday  = MDP_Logger::by_day($since, $until, $from, $to);
         $src_col = isset($_GET['src']) ? sanitize_key($_GET['src']) : 'origin';
         if (!in_array($src_col, array('origin', 'utm_source', 'utm_campaign'), true)) {
             $src_col = 'origin';
         }
-        $by_source = MDP_Logger::by_source($src_col, $days);
+        $by_source = MDP_Logger::by_source($src_col, $since, $until);
         // Фильтр ленты событий: найти покупку среди сотен PageView иначе нереально.
         $ev_filter = isset($_GET['ev']) ? sanitize_text_field(wp_unslash($_GET['ev'])) : '';
         $ev_types  = array('PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Lead', 'Purchase');
@@ -170,14 +180,40 @@ class MDP_Dashboard {
                 </div>
             <?php endif; ?>
 
-            <p class="mdp-ranges">
+            <div class="mdp-ranges" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 4px">
                 <?php
-                $labels = array(1 => 'Сегодня', 7 => '7 дней', 30 => '30 дней', 90 => '90 дней');
-                foreach ($labels as $r => $label) {
-                    $cls = ($r === $days) ? 'button button-primary' : 'button';
-                    printf('<a class="%s" href="%s">%s</a> ', esc_attr($cls), esc_url(add_query_arg(array('range' => $r, 'src' => $src_col), $base)), esc_html($label));
+                $ts = current_time('timestamp');
+                $presets = array(
+                    'Сегодня'   => array($today, $today),
+                    'Вчера'     => array(date_i18n('Y-m-d', $ts - DAY_IN_SECONDS), date_i18n('Y-m-d', $ts - DAY_IN_SECONDS)),
+                    '7 дней'    => array(date_i18n('Y-m-d', $ts - 6 * DAY_IN_SECONDS), $today),
+                    '30 дней'   => array(date_i18n('Y-m-d', $ts - 29 * DAY_IN_SECONDS), $today),
+                    '90 дней'   => array(date_i18n('Y-m-d', $ts - 89 * DAY_IN_SECONDS), $today),
+                    'Этот месяц'=> array(date_i18n('Y-m-01', $ts), $today),
+                );
+                foreach ($presets as $label => $pair) {
+                    $cls = ($pair[0] === $from && $pair[1] === $to) ? 'button button-primary' : 'button';
+                    printf('<a class="%s" href="%s">%s</a>',
+                        esc_attr($cls),
+                        esc_url(add_query_arg(array('from' => $pair[0], 'to' => $pair[1], 'src' => $src_col), $base)),
+                        esc_html($label));
                 }
                 ?>
+
+                <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>"
+                      style="display:flex;align-items:center;gap:6px;margin-left:8px">
+                    <input type="hidden" name="page" value="meta-dynamic-pixel">
+                    <input type="hidden" name="src" value="<?php echo esc_attr($src_col); ?>">
+                    <label style="font-size:12px;color:#646970">с</label>
+                    <input type="date" name="from" value="<?php echo esc_attr($from); ?>" max="<?php echo esc_attr($today); ?>">
+                    <label style="font-size:12px;color:#646970">по</label>
+                    <input type="date" name="to" value="<?php echo esc_attr($to); ?>" max="<?php echo esc_attr($today); ?>">
+                    <button type="submit" class="button">Показать</button>
+                </form>
+            </div>
+            <p style="margin:0 0 12px;color:#646970;font-size:12px">
+                Период: <strong><?php echo esc_html(date_i18n('d.m.Y', strtotime($from))); ?></strong>
+                — <strong><?php echo esc_html(date_i18n('d.m.Y', strtotime($to))); ?></strong>
             </p>
 
             <!-- KPI -->
@@ -218,15 +254,15 @@ class MDP_Dashboard {
                         $cls = ($c === $src_col) ? 'button button-small button-primary' : 'button button-small';
                         printf('<a class="%s" href="%s">%s</a> ',
                             esc_attr($cls),
-                            esc_url(add_query_arg(array('range' => $days, 'src' => $c), $base)),
+                            esc_url(add_query_arg(array('from' => $from, 'to' => $to, 'src' => $c), $base)),
                             esc_html($lbl));
                     }
                     ?>
                 </h2>
                 <?php
-                $src_link = function ($label) use ($base, $days, $src_col) {
+                $src_link = function ($label) use ($base, $from, $to, $src_col) {
                     return esc_url(add_query_arg(array(
-                        'range' => $days, 'src' => $src_col, 'sv' => $label, 'p' => 1,
+                        'from' => $from, 'to' => $to, 'src' => $src_col, 'sv' => $label, 'p' => 1,
                     ), $base) . '#log');
                 };
                 $this->source_table($by_source, $src_link, $src_val);
@@ -239,7 +275,7 @@ class MDP_Dashboard {
                     <p>Фильтр по источнику: <strong><?php echo esc_html($src_val); ?></strong>
                     (<?php echo esc_html($cols[$src_col] ?? $src_col); ?>) —
                     журнал и заказы ниже показаны только для него.
-                    <a href="<?php echo esc_url(add_query_arg(array('range' => $days, 'src' => $src_col), $base)); ?>">Сбросить</a></p>
+                    <a href="<?php echo esc_url(add_query_arg(array('from' => $from, 'to' => $to, 'src' => $src_col), $base)); ?>">Сбросить</a></p>
                 </div>
             <?php endif; ?>
 
@@ -255,9 +291,9 @@ class MDP_Dashboard {
             <div class="mdp-box">
                 <?php
                 // Ссылка журнала с сохранением всех фильтров (кроме переопределённых).
-                $log_url = function ($over = array()) use ($base, $days, $src_col, $ev_filter, $day, $src_val) {
+                $log_url = function ($over = array()) use ($base, $from, $to, $src_col, $ev_filter, $day, $src_val) {
                     return esc_url(add_query_arg(array_merge(array(
-                        'range' => $days, 'src' => $src_col, 'ev' => $ev_filter,
+                        'from' => $from, 'to' => $to, 'src' => $src_col, 'ev' => $ev_filter,
                         'day' => $day, 'sv' => $src_val, 'p' => 1,
                     ), $over), $base) . '#log');
                 };
