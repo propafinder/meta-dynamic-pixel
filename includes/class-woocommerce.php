@@ -146,6 +146,46 @@ class MDP_WooCommerce {
      * было покупок». В отличие от лога событий показывает ВСЕ заказы, включая
      * неоплаченные (failed, cancelled, pending), с источником из снимка атрибуции.
      */
+    /**
+     * Атрибуция заказа задним числом из двух источников:
+     *  1) _mdp_attr — снимок нашего плагина (есть с версии 1.1.8);
+     *  2) родная атрибуция WooCommerce (_wc_order_attribution_*, Woo 8.5+) —
+     *     она есть у ВСЕХ заказов, поэтому спасает историю до 1.1.8.
+     */
+    public static function order_attribution($order) {
+        $out = array('origin' => '', 'utm_source' => '', 'utm_medium' => '', 'utm_campaign' => '');
+        if (!$order instanceof WC_Order) {
+            return $out;
+        }
+
+        $attr = json_decode((string) $order->get_meta('_mdp_attr'), true);
+        if (is_array($attr)) {
+            $out['origin']       = isset($attr['lead_origin'])  ? (string) $attr['lead_origin']  : '';
+            $out['utm_source']   = isset($attr['utm_source'])   ? (string) $attr['utm_source']   : '';
+            $out['utm_medium']   = isset($attr['utm_medium'])   ? (string) $attr['utm_medium']   : '';
+            $out['utm_campaign'] = isset($attr['utm_campaign']) ? (string) $attr['utm_campaign'] : '';
+        }
+
+        // Добираем недостающее из штатной атрибуции WooCommerce.
+        $map = array(
+            'utm_source'   => '_wc_order_attribution_utm_source',
+            'utm_medium'   => '_wc_order_attribution_utm_medium',
+            'utm_campaign' => '_wc_order_attribution_utm_campaign',
+        );
+        foreach ($map as $key => $meta) {
+            if ($out[$key] === '') {
+                $out[$key] = (string) $order->get_meta($meta);
+            }
+        }
+        if ($out['origin'] === '') {
+            $src  = (string) $order->get_meta('_wc_order_attribution_utm_source');
+            $type = (string) $order->get_meta('_wc_order_attribution_source_type');
+            // typed-in / referral / organic / utm — приводим к нашему виду origin.
+            $out['origin'] = $src !== '' ? $src : ($type === 'typein' ? 'direct' : $type);
+        }
+        return $out;
+    }
+
     public static function orders_report($limit = 300, $src_col = '', $src_val = '') {
         if (!function_exists('wc_get_orders')) {
             return array();
@@ -164,8 +204,7 @@ class MDP_WooCommerce {
             if (!$o instanceof WC_Order) {
                 continue;
             }
-            $attr = json_decode((string) $o->get_meta('_mdp_attr'), true);
-            $attr = is_array($attr) ? $attr : array();
+            $attr = self::order_attribution($o);
 
             $row = array(
                 'id'           => $o->get_id(),
@@ -174,9 +213,9 @@ class MDP_WooCommerce {
                 'paid'         => in_array($o->get_status(), $paid_statuses, true),
                 'total'        => (float) $o->get_total(),
                 'currency'     => $o->get_currency(),
-                'origin'       => isset($attr['lead_origin']) ? $attr['lead_origin'] : '',
-                'utm_source'   => isset($attr['utm_source']) ? $attr['utm_source'] : '',
-                'utm_campaign' => isset($attr['utm_campaign']) ? $attr['utm_campaign'] : '',
+                'origin'       => $attr['origin'],
+                'utm_source'   => $attr['utm_source'],
+                'utm_campaign' => $attr['utm_campaign'],
                 'capi_sent'    => (bool) $o->get_meta('_mdp_capi_sent'),
                 // Ссылка от самого заказа: при HPOS заказы не записи, и post.php не подходит.
                 'edit_url'     => method_exists($o, 'get_edit_order_url') ? $o->get_edit_order_url() : '',

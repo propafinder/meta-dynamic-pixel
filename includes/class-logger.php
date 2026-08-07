@@ -431,6 +431,64 @@ class MDP_Logger {
         );
     }
 
+    /** Сколько покупок в логе потеряли метку источника и могут быть восстановлены. */
+    public static function backfill_count() {
+        global $wpdb;
+        $t = self::table();
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM $t
+             WHERE event_name = 'Purchase' AND event_id LIKE 'purchase.%'
+               AND (utm_source = '' OR origin = '' OR origin = 'direct')"
+        );
+    }
+
+    /**
+     * Восстановить источник у прошлых покупок: берём номер заказа из event_id
+     * (purchase.ORDER_ID) и вытягиваем атрибуцию из самого заказа — из нашего
+     * снимка _mdp_attr либо из штатной атрибуции WooCommerce.
+     */
+    public static function backfill_attribution($limit = 3000) {
+        global $wpdb;
+        $t = self::table();
+        if (!function_exists('wc_get_order') || !class_exists('MDP_WooCommerce')) {
+            return 0;
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, event_id FROM $t
+             WHERE event_name = 'Purchase' AND event_id LIKE 'purchase.%%'
+               AND (utm_source = '' OR origin = '' OR origin = 'direct')
+             ORDER BY id DESC LIMIT %d", $limit
+        ));
+
+        $fixed = 0;
+        foreach ((array) $rows as $r) {
+            $order_id = (int) substr($r->event_id, strlen('purchase.'));
+            if (!$order_id) {
+                continue;
+            }
+            $order = wc_get_order($order_id);
+            if (!$order) {
+                continue;
+            }
+            $attr = MDP_WooCommerce::order_attribution($order);
+
+            $data = array();
+            if ($attr['origin'] !== '' && $attr['origin'] !== 'direct') {
+                $data['origin'] = substr($attr['origin'], 0, 60);
+            }
+            if ($attr['utm_source'] !== '')   $data['utm_source']   = substr($attr['utm_source'], 0, 120);
+            if ($attr['utm_medium'] !== '')   $data['utm_medium']   = substr($attr['utm_medium'], 0, 120);
+            if ($attr['utm_campaign'] !== '') $data['utm_campaign'] = substr($attr['utm_campaign'], 0, 150);
+
+            if ($data) {
+                $wpdb->update($t, $data, array('id' => (int) $r->id));
+                $fixed++;
+            }
+        }
+        return $fixed;
+    }
+
     /** Полная очистка таблицы. */
     public static function truncate() {
         global $wpdb;

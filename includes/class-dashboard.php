@@ -11,6 +11,7 @@ class MDP_Dashboard {
         add_action('admin_menu', array($this, 'menu'), 9);
         add_action('admin_post_mdp_clear_data', array($this, 'clear_data'));
         add_action('admin_post_mdp_fix_legacy', array($this, 'fix_legacy'));
+        add_action('admin_post_mdp_backfill', array($this, 'backfill'));
     }
 
     public function menu() {
@@ -50,6 +51,19 @@ class MDP_Dashboard {
         $n = MDP_Logger::fix_legacy_leads();
         wp_safe_redirect(add_query_arg(
             array('page' => 'meta-dynamic-pixel', 'fixed' => $n),
+            admin_url('admin.php')
+        ));
+        exit;
+    }
+
+    /** Восстановление источника у прошлых покупок из данных заказов. */
+    public function backfill() {
+        if (!current_user_can('manage_options') || !check_admin_referer('mdp_backfill')) {
+            wp_die('forbidden');
+        }
+        $n = MDP_Logger::backfill_attribution();
+        wp_safe_redirect(add_query_arg(
+            array('page' => 'meta-dynamic-pixel', 'backfilled' => $n),
             admin_url('admin.php')
         ));
         exit;
@@ -157,6 +171,29 @@ class MDP_Dashboard {
             <?php if (!empty($_GET['cleared'])) : ?>
                 <div class="notice notice-success is-dismissible"><p>Данные аналитики очищены.</p></div>
             <?php endif; ?>
+            <?php if (isset($_GET['backfilled'])) : ?>
+                <div class="notice notice-success is-dismissible"><p>Восстановлен источник у <?php echo intval($_GET['backfilled']); ?> покупок. Обновите период, чтобы увидеть их в разбивке по меткам.</p></div>
+            <?php endif; ?>
+
+            <?php
+            // Покупки, потерявшие метку из-за старого бага (вебхук без cookie).
+            // Источник берём из самого заказа — он там сохранён.
+            $backfill_n = MDP_Logger::backfill_count();
+            if ($backfill_n && class_exists('MDP_WooCommerce')) :
+            ?>
+                <div class="notice notice-warning">
+                    <p><strong>У <?php echo intval($backfill_n); ?> покупок потерян источник</strong> (записаны как «direct» без UTM).<br>
+                    Причина: серверное событие уходило из вебхука платёжной системы, где нет cookie покупателя.
+                    Метку можно восстановить из самих заказов — из снимка атрибуции и из штатной атрибуции WooCommerce.</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                          onsubmit="return confirm('Восстановить источник у <?php echo intval($backfill_n); ?> покупок из данных заказов?');" style="margin:8px 0 12px">
+                        <input type="hidden" name="action" value="mdp_backfill">
+                        <?php wp_nonce_field('mdp_backfill'); ?>
+                        <button type="submit" class="button button-primary">Восстановить источники из заказов</button>
+                    </form>
+                </div>
+            <?php endif; ?>
+
             <?php if (isset($_GET['fixed'])) : ?>
                 <div class="notice notice-success is-dismissible"><p>Исправлено записей: <?php echo intval($_GET['fixed']); ?>. Теперь «Покупки» — только реальные оплаченные заказы WooCommerce.</p></div>
             <?php endif; ?>
